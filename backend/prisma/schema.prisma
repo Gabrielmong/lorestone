@@ -1,0 +1,350 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String     @id @default(uuid()) @db.Uuid
+  email        String     @unique
+  passwordHash String     @map("password_hash")
+  name         String
+  dateOfBirth  DateTime?  @map("date_of_birth") @db.Date
+  campaigns    Campaign[]
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+
+  @@map("users")
+}
+
+model Campaign {
+  id            String      @id @default(uuid()) @db.Uuid
+  userId        String?     @map("user_id") @db.Uuid
+  user          User?       @relation(fields: [userId], references: [id])
+  shareToken    String      @unique @default(uuid()) @map("share_token") @db.Uuid
+  name          String
+  system        String?
+  description   String?
+  yearInGame    String?     @map("year_in_game")
+  playerCount   Int         @default(0) @map("player_count")
+  coverImageUrl String?     @map("cover_image_url")
+  settings      Json        @default("{}")
+  chapters      Chapter[]
+  characters    Character[]
+  factions      Faction[]
+  items         Item[]
+  decisions     Decision[]
+  sessions      Session[]
+  missions      Mission[]
+  encounters    Encounter[]
+  createdAt     DateTime    @default(now()) @map("created_at")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+
+  @@map("campaigns")
+}
+
+model Chapter {
+  id           String      @id @default(uuid()) @db.Uuid
+  campaignId   String      @map("campaign_id") @db.Uuid
+  campaign     Campaign    @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  name          String
+  orderIndex    Int         @default(0) @map("order_index")
+  summary       String?
+  status        String      @default("pending")
+  playerVisible Boolean     @default(false) @map("player_visible")
+  characters   Character[] @relation("CharacterIntroduced")
+  decisions    Decision[]
+  sessions     Session[]
+  missions     Mission[]
+  itemsFound   Item[]      @relation("ItemFound")
+  createdAt    DateTime    @default(now()) @map("created_at")
+  updatedAt    DateTime    @updatedAt @map("updated_at")
+
+  @@map("chapters")
+}
+
+model Character {
+  id                  String                   @id @default(uuid()) @db.Uuid
+  campaignId          String                   @map("campaign_id") @db.Uuid
+  campaign            Campaign                 @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  name                String
+  role                String                   @default("npc")
+  description         String?
+  location            String?
+  chapterIntroducedId String?                  @map("chapter_introduced_id") @db.Uuid
+  chapterIntroduced   Chapter?                 @relation("CharacterIntroduced", fields: [chapterIntroducedId], references: [id])
+  hpMax               Int?                     @map("hp_max")
+  hpCurrent           Int?                     @map("hp_current")
+  armorClass          Int?                     @map("armor_class")
+  speed               Int?
+  stats               Json                     @default("{}")
+  attacks             Json                     @default("[]")
+  specialAbilities    Json                     @default("[]") @map("special_abilities")
+  status              String                   @default("active")
+  corruptionStage     Int                      @default(0) @map("corruption_stage")
+  corruptionMax       Int                      @default(0) @map("corruption_max")
+  narrativeNotes      String?                  @map("narrative_notes")
+  miniPrinted         Boolean                  @default(false) @map("mini_printed")
+  miniStlSource       String?                  @map("mini_stl_source")
+  miniSearchHint      String?                  @map("mini_search_hint")
+  portraitUrl         String?                  @map("portrait_url")
+  tags                String[]                 @default([])
+  extra               Json                     @default("{}")
+  heldItems           Item[]                   @relation("ItemHolder")
+  sessionStates       CharacterSessionState[]
+  decisionStates      CharacterDecisionState[]
+  sessionEvents         SessionEvent[]
+  encounterParticipants EncounterParticipant[] @relation("CharacterEncounters")
+  createdAt             DateTime               @default(now()) @map("created_at")
+  updatedAt             DateTime               @updatedAt @map("updated_at")
+
+  @@map("characters")
+}
+
+model CharacterSessionState {
+  id          String    @id @default(uuid()) @db.Uuid
+  characterId String    @map("character_id") @db.Uuid
+  character   Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+  sessionId   String    @map("session_id") @db.Uuid
+  session     Session   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  hpCurrent   Int?      @map("hp_current")
+  status      String?
+  conditions  String[]  @default([])
+  location    String?
+  notes       String?
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@map("character_session_states")
+}
+
+model Faction {
+  id            String         @id @default(uuid()) @db.Uuid
+  campaignId    String         @map("campaign_id") @db.Uuid
+  campaign      Campaign       @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  name          String
+  description   String?
+  reputation    Int            @default(0)
+  repMin        Int            @default(-3) @map("rep_min")
+  repMax        Int            @default(3) @map("rep_max")
+  color         String?
+  icon          String?
+  extra         Json           @default("{}")
+  sessionEvents SessionEvent[]
+  createdAt     DateTime       @default(now()) @map("created_at")
+  updatedAt     DateTime       @updatedAt @map("updated_at")
+
+  @@map("factions")
+}
+
+model Item {
+  id                String         @id @default(uuid()) @db.Uuid
+  campaignId        String         @map("campaign_id") @db.Uuid
+  campaign          Campaign       @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  name              String
+  type              String         @default("item")
+  description       String?
+  narrativeWeight   String?        @map("narrative_weight")
+  locationFound     String?        @map("location_found")
+  chapterFoundId    String?        @map("chapter_found_id") @db.Uuid
+  chapterFound      Chapter?       @relation("ItemFound", fields: [chapterFoundId], references: [id])
+  inPossession      Boolean        @default(false) @map("in_possession")
+  holderId          String?        @map("holder_id") @db.Uuid
+  holder            Character?     @relation("ItemHolder", fields: [holderId], references: [id])
+  requiredFor       String?        @map("required_for")
+  discoveryRequires String[]       @default([]) @map("discovery_requires")
+  extra             Json           @default("{}")
+  sessionEvents     SessionEvent[]
+  createdAt         DateTime       @default(now()) @map("created_at")
+  updatedAt         DateTime       @updatedAt @map("updated_at")
+
+  @@map("items")
+}
+
+model Decision {
+  id                String           @id @default(uuid()) @db.Uuid
+  campaignId        String           @map("campaign_id") @db.Uuid
+  campaign          Campaign         @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  chapterId         String?          @map("chapter_id") @db.Uuid
+  chapter           Chapter?         @relation(fields: [chapterId], references: [id])
+  missionId         String?          @map("mission_id") @db.Uuid
+  mission           Mission?         @relation(fields: [missionId], references: [id])
+  missionName       String?          @map("mission_name")
+  question          String
+  context           String?
+  orderIndex        Int              @default(0) @map("order_index")
+  status            String           @default("pending")
+  chosenBranchId    String?          @map("chosen_branch_id") @db.Uuid
+  chosenBranch      DecisionBranch?  @relation("ChosenBranch", fields: [chosenBranchId], references: [id])
+  resolvedAt        DateTime?        @map("resolved_at")
+  extra             Json             @default("{}")
+  branches          DecisionBranch[] @relation("DecisionBranches")
+  incomingLinks     DecisionLink[]   @relation("DecisionLinkTo")
+  outgoingLinks     DecisionLink[]   @relation("DecisionLinkFrom")
+  sessionEvents     SessionEvent[]
+  encounters        Encounter[]      @relation("EncounterDecision")
+  encounterOutcomes Encounter[]      @relation("EncounterOutcomeDecision")
+  createdAt         DateTime         @default(now()) @map("created_at")
+  updatedAt         DateTime         @updatedAt @map("updated_at")
+
+  @@map("decisions")
+}
+
+model DecisionBranch {
+  id              String                   @id @default(uuid()) @db.Uuid
+  decisionId      String                   @map("decision_id") @db.Uuid
+  decision        Decision                 @relation("DecisionBranches", fields: [decisionId], references: [id], onDelete: Cascade)
+  label           String
+  description     String?
+  consequence     String?
+  outcomeType     String                   @default("neutral") @map("outcome_type")
+  orderIndex      Int                      @default(0) @map("order_index")
+  outcomes        Json                     @default("[]")
+  characterStates CharacterDecisionState[]
+  chosenBy        Decision[]               @relation("ChosenBranch")
+  decisionLinks   DecisionLink[]
+  sessionEvents   SessionEvent[]
+  createdAt       DateTime                 @default(now()) @map("created_at")
+
+  @@map("decision_branches")
+}
+
+model DecisionLink {
+  id             String          @id @default(uuid()) @db.Uuid
+  fromDecisionId String          @map("from_decision_id") @db.Uuid
+  fromDecision   Decision        @relation("DecisionLinkFrom", fields: [fromDecisionId], references: [id], onDelete: Cascade)
+  fromBranchId   String?         @map("from_branch_id") @db.Uuid
+  fromBranch     DecisionBranch? @relation(fields: [fromBranchId], references: [id], onDelete: SetNull)
+  toDecisionId   String          @map("to_decision_id") @db.Uuid
+  toDecision     Decision        @relation("DecisionLinkTo", fields: [toDecisionId], references: [id], onDelete: Cascade)
+  createdAt      DateTime        @default(now()) @map("created_at")
+
+  @@unique([fromDecisionId, toDecisionId])
+  @@map("decision_links")
+}
+
+model CharacterDecisionState {
+  id           String         @id @default(uuid()) @db.Uuid
+  branchId     String         @map("branch_id") @db.Uuid
+  branch       DecisionBranch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  characterId  String         @map("character_id") @db.Uuid
+  character    Character      @relation(fields: [characterId], references: [id], onDelete: Cascade)
+  stateLabel   String?        @map("state_label")
+  description  String
+  statusChange String?        @map("status_change")
+  createdAt    DateTime       @default(now()) @map("created_at")
+
+  @@map("character_decision_states")
+}
+
+model Session {
+  id              String                  @id @default(uuid()) @db.Uuid
+  campaignId      String                  @map("campaign_id") @db.Uuid
+  campaign        Campaign                @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  chapterId       String?                 @map("chapter_id") @db.Uuid
+  chapter         Chapter?                @relation(fields: [chapterId], references: [id])
+  sessionNumber   Int                     @map("session_number")
+  title           String?
+  playedAt        DateTime?               @map("played_at")
+  startedAt       DateTime?               @map("started_at")
+  endedAt         DateTime?               @map("ended_at")
+  dmNotes         String?                 @map("dm_notes")
+  playerSummary   String?                 @map("player_summary")
+  status          String                  @default("planned")
+  events          SessionEvent[]
+  characterStates CharacterSessionState[]
+  createdAt       DateTime                @default(now()) @map("created_at")
+  updatedAt       DateTime                @updatedAt @map("updated_at")
+
+  @@map("sessions")
+}
+
+model SessionEvent {
+  id              String          @id @default(uuid()) @db.Uuid
+  sessionId       String          @map("session_id") @db.Uuid
+  session         Session         @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  eventType       String          @map("event_type")
+  description     String?
+  decisionId      String?         @map("decision_id") @db.Uuid
+  decision        Decision?       @relation(fields: [decisionId], references: [id])
+  branchId        String?         @map("branch_id") @db.Uuid
+  branch          DecisionBranch? @relation(fields: [branchId], references: [id])
+  characterId     String?         @map("character_id") @db.Uuid
+  character       Character?      @relation(fields: [characterId], references: [id])
+  itemId          String?         @map("item_id") @db.Uuid
+  item            Item?           @relation(fields: [itemId], references: [id])
+  factionId       String?         @map("faction_id") @db.Uuid
+  faction         Faction?        @relation(fields: [factionId], references: [id])
+  reputationDelta Int?            @map("reputation_delta")
+  extra           Json            @default("{}")
+  createdAt       DateTime        @default(now()) @map("created_at")
+
+  @@map("session_events")
+}
+
+model Mission {
+  id          String     @id @default(uuid()) @db.Uuid
+  campaignId  String     @map("campaign_id") @db.Uuid
+  campaign    Campaign   @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  chapterId   String?    @map("chapter_id") @db.Uuid
+  chapter     Chapter?   @relation(fields: [chapterId], references: [id])
+  name        String
+  type        String     @default("main")
+  description String?
+  status      String     @default("pending")
+  orderIndex  Int        @default(0) @map("order_index")
+  decisions   Decision[]
+  createdAt   DateTime   @default(now()) @map("created_at")
+  updatedAt   DateTime   @updatedAt @map("updated_at")
+
+  @@map("missions")
+}
+
+model Encounter {
+  id                 String                 @id @default(uuid()) @db.Uuid
+  campaignId         String                 @map("campaign_id") @db.Uuid
+  campaign           Campaign               @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  name               String
+  description        String?
+  status             String                 @default("pending")
+  round              Int                    @default(1)
+  currentTurnIndex   Int                    @default(0) @map("current_turn_index")
+  linkedDecisionId   String?                @map("linked_decision_id") @db.Uuid
+  linkedDecision     Decision?              @relation("EncounterDecision", fields: [linkedDecisionId], references: [id])
+  outcomeDecisionId  String?                @map("outcome_decision_id") @db.Uuid
+  outcomeDecision    Decision?              @relation("EncounterOutcomeDecision", fields: [outcomeDecisionId], references: [id])
+  outcomeType        String?                @map("outcome_type")
+  outcome            String?
+  startedAt          DateTime?              @map("started_at")
+  endedAt            DateTime?              @map("ended_at")
+  participants       EncounterParticipant[]
+  createdAt          DateTime               @default(now()) @map("created_at")
+  updatedAt          DateTime               @updatedAt @map("updated_at")
+
+  @@map("encounters")
+}
+
+model EncounterParticipant {
+  id          String     @id @default(uuid()) @db.Uuid
+  encounterId String     @map("encounter_id") @db.Uuid
+  encounter   Encounter  @relation(fields: [encounterId], references: [id], onDelete: Cascade)
+  characterId String?    @map("character_id") @db.Uuid
+  character   Character? @relation("CharacterEncounters", fields: [characterId], references: [id])
+  name        String
+  isPlayer    Boolean    @default(false) @map("is_player")
+  initiative  Int        @default(0)
+  hpMax       Int?       @map("hp_max")
+  hpCurrent   Int?       @map("hp_current")
+  armorClass  Int?       @map("armor_class")
+  conditions        String[]   @default([])
+  isActive          Boolean    @default(true) @map("is_active")
+  killedByName      String?    @map("killed_by_name")
+  killedDescription String?    @map("killed_description")
+  notes             String?
+  createdAt         DateTime   @default(now()) @map("created_at")
+  updatedAt         DateTime   @updatedAt @map("updated_at")
+
+  @@map("encounter_participants")
+}

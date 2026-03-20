@@ -1,0 +1,1 @@
+ALTER TABLE "chapters" ADD COLUMN IF NOT EXISTS "player_visible" BOOLEAN NOT NULL DEFAULT false;
