@@ -1,7 +1,7 @@
 import { readFileSync } from 'fs'
 import { join } from 'path'
 
-const baseTypeDefs = readFileSync(join(__dirname, '../../../schema.graphql'), 'utf-8')
+const baseTypeDefs = readFileSync(join(__dirname, '../../schema.graphql'), 'utf-8')
 
 const extensions = `
   type User {
