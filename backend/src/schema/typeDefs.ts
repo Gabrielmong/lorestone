@@ -122,6 +122,7 @@ const extensions = `
   input UpdateChapterInput {
     name: String
     summary: String
+    content: String
     status: ChapterStatus
     orderIndex: Int
     playerVisible: Boolean

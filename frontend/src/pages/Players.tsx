@@ -21,7 +21,7 @@ import { useCampaign } from '../context/campaign'
 import { parseCharacterSheet } from '../utils/parseCharacterSheet'
 import type { ParsedCharacterSheet } from '../utils/parseCharacterSheet'
 import PlayerFormDialog from '../components/PlayerFormDialog'
-import type { PlayerFormValues } from '../components/PlayerFormDialog'
+import type { PlayerFormValues, PlayerFormWeapon, PlayerFormEquipItem } from '../components/PlayerFormDialog'
 
 const PLAYERS = gql`
   query Players($campaignId: ID!) {
@@ -143,6 +143,31 @@ function formToInput(v: PlayerFormValues, importType: ImportType) {
   if (scores.wisdom) stats.WIS = scores.wisdom
   if (scores.charisma) stats.CHA = scores.charisma
 
+  const weapons = v.weapons
+    .filter((w: PlayerFormWeapon) => w.name.trim())
+    .map((w: PlayerFormWeapon) => ({
+      name: w.name,
+      attackBonus: w.attackBonus || undefined,
+      damage: w.damage || undefined,
+      notes: w.notes || undefined,
+    }))
+
+  const equipment = v.equipment
+    .filter((e: PlayerFormEquipItem) => e.name.trim())
+    .map((e: PlayerFormEquipItem) => ({ name: e.name, qty: e.qty || undefined }))
+
+  const cp = parseInt(v.currencyCp) || undefined
+  const sp = parseInt(v.currencySp) || undefined
+  const ep = parseInt(v.currencyEp) || undefined
+  const gp = parseInt(v.currencyGp) || undefined
+  const pp = parseInt(v.currencyPp) || undefined
+  const currency = [cp, sp, ep, gp, pp].some((c) => c != null) ? { cp, sp, ep, gp, pp } : undefined
+
+  const savingThrows = Object.fromEntries(Object.entries(v.savingThrows).filter(([, val]) => val.trim()))
+  const skills = Object.fromEntries(Object.entries(v.skills).filter(([, val]) => val.trim()))
+  const featuresTraits = v.featuresTraits ? v.featuresTraits.split('\n\n').filter(Boolean) : undefined
+  const actions = v.actions ? v.actions.split('\n\n').filter(Boolean) : undefined
+
   const extra: SheetExtra = {
     importType,
     name: v.name || undefined,
@@ -158,7 +183,23 @@ function formToInput(v: PlayerFormValues, importType: ImportType) {
     initiative: v.initiative || undefined,
     hitDice: v.hitDice || undefined,
     proficiencyBonus: v.proficiencyBonus || undefined,
+    spellSaveDC: v.spellSaveDC || undefined,
+    passivePerception: v.passivePerception ? parseInt(v.passivePerception) : undefined,
     proficienciesAndLanguages: v.proficienciesAndLanguages || undefined,
+    gender: v.gender || undefined,
+    age: v.age || undefined,
+    height: v.height || undefined,
+    weight: v.weight || undefined,
+    eyes: v.eyes || undefined,
+    hair: v.hair || undefined,
+    skin: v.skin || undefined,
+    weapons: weapons.length ? weapons : undefined,
+    equipment: equipment.length ? equipment : undefined,
+    currency,
+    savingThrows: Object.keys(savingThrows).length ? savingThrows : undefined,
+    skills: Object.keys(skills).length ? skills : undefined,
+    featuresTraits,
+    actions,
     ...scores,
     strengthMod: scores.strength ? modStr(scores.strength) : undefined,
     dexterityMod: scores.dexterity ? modStr(scores.dexterity) : undefined,
@@ -723,19 +764,47 @@ export default function Players() {
             level: s.level != null ? String(s.level) : '',
             background: s.background ?? '',
             alignment: s.alignment ?? '',
+            description: editingPlayer.description ?? '',
+            hitDice: s.hitDice ?? '',
             hpMax: editingPlayer.hpMax != null ? String(editingPlayer.hpMax) : '',
             armorClass: editingPlayer.armorClass != null ? String(editingPlayer.armorClass) : '',
             speed: s.speed ?? '',
             initiative: s.initiative ?? '',
-            hitDice: s.hitDice ?? '',
             proficiencyBonus: s.proficiencyBonus ?? '',
+            spellSaveDC: s.spellSaveDC ?? '',
+            passivePerception: s.passivePerception != null ? String(s.passivePerception) : '',
             strength: s.strength != null ? String(s.strength) : '',
             dexterity: s.dexterity != null ? String(s.dexterity) : '',
             constitution: s.constitution != null ? String(s.constitution) : '',
             intelligence: s.intelligence != null ? String(s.intelligence) : '',
             wisdom: s.wisdom != null ? String(s.wisdom) : '',
             charisma: s.charisma != null ? String(s.charisma) : '',
-            description: editingPlayer.description ?? '',
+            gender: s.gender ?? '',
+            age: s.age ?? '',
+            height: s.height ?? '',
+            weight: s.weight ?? '',
+            eyes: s.eyes ?? '',
+            hair: s.hair ?? '',
+            skin: s.skin ?? '',
+            savingThrows: s.savingThrows ?? {},
+            skills: s.skills ?? {},
+            weapons: s.weapons ? s.weapons.map((w) => ({
+              name: w.name ?? '',
+              attackBonus: w.attackBonus ?? '',
+              damage: w.damage ?? '',
+              notes: w.notes ?? '',
+            })) : [],
+            equipment: s.equipment ? s.equipment.map((e) => ({
+              name: e.name ?? '',
+              qty: e.qty ?? '',
+            })) : [],
+            currencyCp: s.currency?.cp != null ? String(s.currency.cp) : '',
+            currencySp: s.currency?.sp != null ? String(s.currency.sp) : '',
+            currencyEp: s.currency?.ep != null ? String(s.currency.ep) : '',
+            currencyGp: s.currency?.gp != null ? String(s.currency.gp) : '',
+            currencyPp: s.currency?.pp != null ? String(s.currency.pp) : '',
+            featuresTraits: s.featuresTraits?.join('\n\n') ?? '',
+            actions: s.actions?.join('\n\n') ?? '',
             proficienciesAndLanguages: s.proficienciesAndLanguages ?? '',
           }
         })() : undefined}

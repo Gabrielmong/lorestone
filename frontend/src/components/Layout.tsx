@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { pageVariants } from '../utils/motion'
 import {
   Box,
+  Badge,
   Drawer,
   List,
   ListItemButton,
@@ -29,30 +30,38 @@ import LogoutIcon from '@mui/icons-material/Logout'
 import CasinoIcon from '@mui/icons-material/Casino'
 import MenuIcon from '@mui/icons-material/Menu'
 import MenuBookIcon from '@mui/icons-material/MenuBook'
+import LayersIcon from '@mui/icons-material/Layers'
 import MapIcon from '@mui/icons-material/Map'
+import HistoryIcon from '@mui/icons-material/History'
 import { useAuthStore } from '../store/auth'
 import { useCampaign } from '../context/campaign'
+import { useDiceStore } from '../store/dice'
 import { version } from '../../package.json'
 import { AccountCircle } from '@mui/icons-material'
+import DiceRoller from './DiceRoller'
 
 const DRAWER_WIDTH = 220
 
 const navItems = [
   { to: '/dashboard', label: 'Dashboard', icon: <DashboardIcon fontSize="small" /> },
+  { to: '/chapters', label: 'Chapters', icon: <LayersIcon fontSize="small" /> },
   { to: '/characters', label: 'Characters', icon: <PeopleIcon fontSize="small" /> },
   { to: '/decisions', label: 'Decisions', icon: <AccountTreeIcon fontSize="small" /> },
-  { to: '/items', label: 'Items', icon: <AutoAwesomeIcon fontSize="small" /> },
-  { to: '/factions', label: 'Factions', icon: <GroupsIcon fontSize="small" /> },
   { to: '/encounters', label: 'Encounters', icon: <LocalFireDepartmentIcon fontSize="small" /> },
-  { to: '/players', label: 'Players', icon: <CasinoIcon fontSize="small" /> },
-  { to: '/wiki', label: 'Wiki', icon: <MenuBookIcon fontSize="small" /> },
+  { to: '/factions', label: 'Factions', icon: <GroupsIcon fontSize="small" /> },
+  { to: '/items', label: 'Items', icon: <AutoAwesomeIcon fontSize="small" /> },
   { to: '/missions', label: 'Missions', icon: <MapIcon fontSize="small" /> },
+  { to: '/players', label: 'Players', icon: <CasinoIcon fontSize="small" /> },
+  { to: '/sessions', label: 'Sessions', icon: <HistoryIcon fontSize="small" /> },
+  { to: '/wiki', label: 'Wiki', icon: <MenuBookIcon fontSize="small" /> },
 ]
 
 function DrawerContent({ onNavigate, hasAppBar }: { onNavigate?: () => void; hasAppBar?: boolean }) {
   const { user, logout } = useAuthStore()
   const { campaignName } = useCampaign()
   const navigate = useNavigate()
+  const { open: openDice, rollHistory } = useDiceStore()
+  const lastRoll = rollHistory[0]
 
   const handleLogout = () => {
     logout()
@@ -112,6 +121,22 @@ function DrawerContent({ onNavigate, hasAppBar }: { onNavigate?: () => void; has
 
       {/* Bottom */}
       <Box sx={{ p: 1.5, borderTop: '1px solid rgba(120,108,92,0.3)' }}>
+        <Tooltip title="Roll dice">
+          <IconButton onClick={openDice} size="small" sx={{ color: '#786c5c', '&:hover': { color: '#c8a44a' } }}>
+            <Badge
+              badgeContent={lastRoll ? lastRoll.total : null}
+              sx={{
+                '& .MuiBadge-badge': {
+                  bgcolor: '#c8a44a', color: '#0b0906',
+                  fontSize: '0.55rem', minWidth: 16, height: 16,
+                  fontFamily: '"JetBrains Mono"', fontWeight: 700,
+                },
+              }}
+            >
+              <CasinoIcon fontSize="small" />
+            </Badge>
+          </IconButton>
+        </Tooltip>
         <Tooltip title="Profile">
           <IconButton onClick={() => { navigate('/profile'); onNavigate?.() }} size="small" sx={{ color: '#786c5c', '&:hover': { color: '#c8a44a' } }}>
             <AccountCircle fontSize="small" />
@@ -191,6 +216,9 @@ export default function Layout() {
           <DrawerContent onNavigate={() => setMobileOpen(false)} hasAppBar />
         </Drawer>
       )}
+
+      {/* Global dice roller overlay */}
+      <DiceRoller />
 
       {/* Main content */}
       <Box component="main" sx={{

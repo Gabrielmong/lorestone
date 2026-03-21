@@ -895,7 +895,7 @@ export default function Wiki() {
   }
 
   return (
-    <Box sx={{ display: 'flex', height: 'calc(100vh - 0px)', overflow: 'hidden', mx: -2, mt: -2, mb: -2, ...(isMobile ? { mt: 0 } : {}) }}>
+    <Box sx={{ display: 'flex', height: isMobile ? 'calc(100vh - 68px)' : 'calc(100vh)', overflow: 'hidden', mx: { xs: -2, md: -3 }, mt: { xs: 0, md: -3 }, mb: { xs: -2, md: -3 } }}>
 
       {/* Sidebar */}
       {(!isMobile || showSidebar) && (

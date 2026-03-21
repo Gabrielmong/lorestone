@@ -118,7 +118,7 @@ export default function Dashboard() {
   })
 
   const [deleteChapter, { loading: deletingChapter }] = useMutation(DELETE_CHAPTER)
-  const [deleteSession, { loading: deletingSession }] = useMutation(DELETE_SESSION)
+  const [deleteSession, { loading: deletingSession }] = useMutation(DELETE_SESSION, { refetchQueries: ['Dashboard'] })
   const [updateChapterStatus] = useMutation(UPDATE_CHAPTER_STATUS)
   const [startSession] = useMutation(START_SESSION)
 
@@ -152,7 +152,8 @@ export default function Dashboard() {
     CRITICAL_WEIGHTS.includes((i.narrativeWeight ?? '').toLowerCase()) && i.inPossession
   ) ?? []
   const chapters = campaign.chapters ?? []
-  const sessions = campaign.sessions ?? []
+  const sessions: { id: string; sessionNumber: number; title?: string | null; status: string; dmNotes?: string | null; playerSummary?: string | null; playedAt?: string | null }[] = campaign.sessions ?? []
+  const recentSessions = sessions.slice(-3).reverse()
   const nextSessionNumber = sessions.length > 0
     ? Math.max(...sessions.map((s: { sessionNumber: number }) => s.sessionNumber)) + 1
     : 1
@@ -273,14 +274,21 @@ export default function Dashboard() {
           <Box>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
               <Typography variant="h6" sx={{ color: '#c8a44a' }}>Sessions</Typography>
-              <Button size="small" startIcon={<AddIcon />} variant="outlined"
-                onClick={() => { setEditSession(null); setSessionFormOpen(true) }}
-                sx={{ color: '#c8a44a', borderColor: 'rgba(200,164,74,0.3)', fontSize: '0.75rem' }}>
-                Add
-              </Button>
+              <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                {sessions.length > 3 && (
+                  <Button size="small" variant="text" onClick={() => navigate('/sessions')} sx={{ color: '#786c5c', fontSize: '0.75rem' }}>
+                    View all →
+                  </Button>
+                )}
+                <Button size="small" startIcon={<AddIcon />} variant="outlined"
+                  onClick={() => { setEditSession(null); setSessionFormOpen(true) }}
+                  sx={{ color: '#c8a44a', borderColor: 'rgba(200,164,74,0.3)', fontSize: '0.75rem' }}>
+                  Add
+                </Button>
+              </Box>
             </Box>
             <List disablePadding component={motion.ul} variants={staggerContainer}>
-              {sessions.map((s: { id: string; sessionNumber: number; title?: string | null; status: string; dmNotes?: string | null; playerSummary?: string | null; playedAt?: string | null }) => (
+              {recentSessions.map((s) => (
                 <motion.div key={s.id} variants={slideUp}>
                 <ListItem
                   onClick={() => navigate(`/session/${s.id}`)}
@@ -338,7 +346,7 @@ export default function Dashboard() {
           {/* Active Missions */}
           {(() => {
             const allMissions: { id: string; name: string; type: string; status: string }[] = missionsData?.missions ?? []
-            const activeMissions = allMissions.filter(m => ['ACTIVE', 'PENDING'].includes(m.status))
+            const activeMissions = allMissions.filter(m => m.status === 'ACTIVE')
             if (activeMissions.length === 0) return null
             return (
               <Box sx={{ mb: 3 }}>

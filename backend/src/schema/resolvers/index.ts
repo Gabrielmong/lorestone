@@ -11,6 +11,7 @@ import { playerViewResolvers } from './playerView'
 import { encounterResolvers } from './encounter'
 import { campaignStatsResolvers } from './campaignStats'
 import { wikiResolvers } from './wiki'
+import { diceSetResolvers } from './diceSet'
 
 export const resolvers = {
   DateTime: DateTimeResolver,
@@ -30,6 +31,7 @@ export const resolvers = {
     ...playerViewResolvers.Query,
     ...campaignStatsResolvers.Query,
     ...wikiResolvers.Query,
+    ...diceSetResolvers.Query,
   },
 
   Mutation: {
@@ -43,6 +45,7 @@ export const resolvers = {
     ...encounterResolvers.Mutation,
     ...authResolvers.Mutation,
     ...wikiResolvers.Mutation,
+    ...diceSetResolvers.Mutation,
   },
 
   Campaign: campaignResolvers.Campaign,

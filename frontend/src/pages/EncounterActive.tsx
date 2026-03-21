@@ -5,9 +5,11 @@ import {
   Box, Typography, Button, CircularProgress, Alert, Grid,
   Chip, IconButton, TextField, Select, MenuItem, FormControl,
   Dialog, DialogTitle, DialogContent, DialogActions, Tooltip,
-  Divider, LinearProgress, Autocomplete, InputLabel,
+  Divider, LinearProgress, Autocomplete, InputLabel, InputAdornment,
 } from '@mui/material'
 import { useCampaign } from '../context/campaign'
+import { useDiceStore } from '../store/dice'
+import CasinoIcon from '@mui/icons-material/Casino'
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import SkipNextIcon from '@mui/icons-material/SkipNext'
 import SkipPreviousIcon from '@mui/icons-material/SkipPrevious'
@@ -29,7 +31,7 @@ const ENCOUNTER = gql`
       participants {
         id name isPlayer initiative hpMax hpCurrent armorClass conditions isActive
         killedByName killedDescription notes
-        character { id name }
+        character { id name attacks extra }
       }
     }
   }
@@ -71,7 +73,7 @@ const END_ENCOUNTER = gql`
 const CAMPAIGN_CHARS = gql`
   query EncounterChars($campaignId: ID!) {
     characters(campaignId: $campaignId) {
-      id name role hpMax hpCurrent armorClass
+      id name role hpMax hpCurrent armorClass initiative stats
     }
   }
 `
@@ -79,16 +81,68 @@ const CAMPAIGN_CHARS = gql`
 const CONDITIONS = ['Blinded','Charmed','Deafened','Frightened','Grappled','Incapacitated',
   'Invisible','Paralyzed','Petrified','Poisoned','Prone','Restrained','Stunned','Unconscious']
 
+type Attack = { name: string; bonus: number; damage: string }
+
+// Normalized attack usable for dice rolling regardless of source
+type NormalizedAttack = {
+  name: string; bonus: number; damage: string
+  dmgNotation: string; dmgMod: number; notes?: string
+}
+
+/** Strip damage type suffix ("1d8+2 Slashing" → "1d8+2") */
+function stripDmgType(dmgStr: string): string {
+  return dmgStr.replace(/\s+[A-Za-z].*$/, '').trim()
+}
+
+function parseDmg(dmgStr: string): { dmgNotation: string; dmgMod: number } {
+  const s = stripDmgType(dmgStr)
+  const m = s.match(/(\d+d\d+)([+-]\d+)?/)
+  if (m) return { dmgNotation: m[1], dmgMod: m[2] ? parseInt(m[2]) : 0 }
+  const flat = parseInt(s)
+  if (!isNaN(flat)) return { dmgNotation: `${flat}`, dmgMod: 0 }
+  return { dmgNotation: '1d6', dmgMod: 0 }
+}
+
+function normalizeAttacks(character: { attacks?: Attack[] | null; extra?: unknown } | null | undefined): NormalizedAttack[] {
+  const result: NormalizedAttack[] = []
+
+  // NPC / character.attacks field (bonus is number)
+  for (const atk of character?.attacks ?? []) {
+    const { dmgNotation, dmgMod } = parseDmg(atk.damage)
+    result.push({ name: atk.name, bonus: atk.bonus, damage: atk.damage, dmgNotation, dmgMod })
+  }
+
+  // Player weapons from extra.weapons (attackBonus is string like "+4", damage may have type suffix)
+  // extra may arrive as a string from the JSON scalar in some environments
+  const rawExtra = character?.extra
+  const extraObj = typeof rawExtra === 'string'
+    ? (JSON.parse(rawExtra) as Record<string, unknown>)
+    : (rawExtra as Record<string, unknown> | null)
+  const extraWeapons = extraObj?.weapons as
+    Array<{ name?: string; attackBonus?: string; damage?: string; notes?: string }> | undefined
+  for (const w of extraWeapons ?? []) {
+    if (!w.name?.trim()) continue
+    // Skip if already in attacks (avoid duplicates for characters with both fields)
+    if (result.some((r) => r.name === w.name)) continue
+    const bonus = parseInt(w.attackBonus ?? '0') || 0
+    const dmgStr = stripDmgType(w.damage ?? '')
+    const { dmgNotation, dmgMod } = parseDmg(dmgStr)
+    result.push({ name: w.name, bonus, damage: dmgStr, dmgNotation, dmgMod, notes: w.notes })
+  }
+
+  return result
+}
+
 type Participant = {
   id: string; name: string; isPlayer: boolean; initiative: number
   hpMax?: number | null; hpCurrent?: number | null; armorClass?: number | null
   conditions: string[]; isActive: boolean
   killedByName?: string | null; killedDescription?: string | null
   notes?: string | null
-  character?: { id: string; name: string } | null
+  character?: { id: string; name: string; attacks?: Attack[] | null; extra?: unknown } | null
 }
 
-type CampaignChar = { id: string; name: string; role: string; hpMax?: number | null; hpCurrent?: number | null; armorClass?: number | null }
+type CampaignChar = { id: string; name: string; role: string; hpMax?: number | null; hpCurrent?: number | null; armorClass?: number | null; initiative?: number | null; stats?: Record<string, number> | null }
 
 export default function EncounterActive() {
   const { id } = useParams<{ id: string }>()
@@ -114,6 +168,8 @@ export default function EncounterActive() {
 
   const { data: charsData } = useQuery(CAMPAIGN_CHARS, { variables: { campaignId }, skip: !campaignId })
   const campaignChars: CampaignChar[] = charsData?.characters ?? []
+
+  const { triggerAutoRoll, triggerRoll } = useDiceStore()
 
   // Add participant form
   const [addOpen, setAddOpen] = useState(false)
@@ -328,6 +384,76 @@ export default function EncounterActive() {
             sx={{ height: 3, borderRadius: 1, mb: 0.75, bgcolor: 'rgba(120,108,92,0.2)',
               '& .MuiLinearProgress-bar': { bgcolor: hpColor, borderRadius: 1 } }} />
         )}
+
+        {/* Attacks — merged from character.attacks (NPC) + character.extra.weapons (player) */}
+        {(() => {
+          const normalized = normalizeAttacks(p.character)
+          const extraActions = (p.character?.extra as Record<string, unknown> | null)?.actions as string[] | undefined
+          if (!normalized.length && !extraActions?.length) return null
+          return (
+          <Box sx={{ mt: 0.75, mb: 0.5 }}>
+            {normalized.length > 0 && (
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mb: extraActions?.length ? 0.5 : 0 }}>
+            {normalized.map((atk, i) => (
+                <Box key={i} sx={{
+                  display: 'flex', alignItems: 'center', gap: 0.5,
+                  px: 1, py: 0.25, borderRadius: 1,
+                  bgcolor: 'rgba(120,108,92,0.08)', border: '1px solid rgba(120,108,92,0.15)',
+                }}>
+                  <Typography sx={{ fontSize: '0.72rem', color: '#b4a48a', fontFamily: '"JetBrains Mono"' }}>
+                    {atk.name}
+                  </Typography>
+                  <Typography sx={{ fontSize: '0.65rem', color: '#786c5c', fontFamily: '"JetBrains Mono"' }}>
+                    {atk.bonus >= 0 ? '+' : ''}{atk.bonus}/{atk.damage}
+                  </Typography>
+                  {atk.notes && (
+                    <Typography sx={{ fontSize: '0.6rem', color: '#4a3f2e', fontStyle: 'italic', maxWidth: 80, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {atk.notes}
+                    </Typography>
+                  )}
+                  <Tooltip title={`Roll attack (d20${atk.bonus >= 0 ? '+' : ''}${atk.bonus})`}>
+                    <Box
+                      onClick={() => triggerRoll('1d20', `${p.name} — ${atk.name} attack`, atk.bonus)}
+                      sx={{
+                        px: 0.6, py: 0.1, borderRadius: 0.5, cursor: 'pointer',
+                        border: '1px solid rgba(200,164,74,0.3)', fontSize: '0.58rem',
+                        color: '#c8a44a', fontFamily: '"JetBrains Mono"',
+                        '&:hover': { bgcolor: 'rgba(200,164,74,0.1)' },
+                      }}
+                    >ATK</Box>
+                  </Tooltip>
+                  {atk.dmgNotation && atk.dmgNotation !== atk.damage && (
+                  <Tooltip title={`Roll damage (${atk.damage})`}>
+                    <Box
+                      onClick={() => triggerRoll(atk.dmgNotation, `${p.name} — ${atk.name} damage`, atk.dmgMod)}
+                      sx={{
+                        px: 0.6, py: 0.1, borderRadius: 0.5, cursor: 'pointer',
+                        border: '1px solid rgba(184,72,72,0.3)', fontSize: '0.58rem',
+                        color: '#b84848', fontFamily: '"JetBrains Mono"',
+                        '&:hover': { bgcolor: 'rgba(184,72,72,0.1)' },
+                      }}
+                    >DMG</Box>
+                  </Tooltip>
+                  )}
+                </Box>
+            ))}
+            </Box>
+            )}
+            {extraActions && extraActions.length > 0 && (
+            <Box sx={{ mt: 0.5 }}>
+              <Typography sx={{ fontSize: '0.6rem', color: '#786c5c', textTransform: 'uppercase', letterSpacing: 0.6, mb: 0.25, fontFamily: '"JetBrains Mono"' }}>
+                Actions
+              </Typography>
+              {extraActions.map((action, ai) => (
+                <Typography key={ai} sx={{ fontSize: '0.7rem', color: '#786c5c', mb: 0.25, fontStyle: 'italic' }}>
+                  {action}
+                </Typography>
+              ))}
+            </Box>
+            )}
+          </Box>
+          )
+        })()}
 
         {/* Conditions */}
         <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 0.5 }}>
@@ -599,7 +725,40 @@ export default function EncounterActive() {
             )}
 
             <Grid item xs={6}>
-              <TextField label="Initiative" type="number" value={newInit} onChange={(e) => setNewInit(e.target.value)} fullWidth size="small" />
+              <TextField
+                label="Initiative" type="number" value={newInit}
+                onChange={(e) => setNewInit(e.target.value)}
+                fullWidth size="small"
+                InputProps={{
+                  endAdornment: (
+                    <InputAdornment position="end">
+                      <Tooltip title={(() => {
+                        const dexMod = selectedChar?.stats?.DEX != null
+                          ? Math.floor((selectedChar.stats.DEX - 10) / 2)
+                          : selectedChar?.stats?.dex != null
+                            ? Math.floor((selectedChar.stats.dex - 10) / 2)
+                            : null
+                        const initMod = selectedChar?.initiative ?? dexMod
+                        return initMod != null ? `Roll d20 + ${initMod >= 0 ? '+' : ''}${initMod}` : 'Roll d20 for initiative'
+                      })()}>
+                        <IconButton size="small"
+                          sx={{ color: '#786c5c', '&:hover': { color: '#c8a44a' }, p: 0.25 }}
+                          onClick={() => {
+                            const dexVal = selectedChar?.stats?.DEX ?? selectedChar?.stats?.dex
+                            const dexMod = dexVal != null ? Math.floor((Number(dexVal) - 10) / 2) : 0
+                            const initMod = selectedChar?.initiative ?? dexMod
+                            const label = selectedChar
+                              ? `${selectedChar.name} — Initiative`
+                              : `${newName || 'Initiative'} — Initiative`
+                            triggerAutoRoll('1d20', label, initMod, (total) => setNewInit(String(total)))
+                          }}>
+                          <CasinoIcon sx={{ fontSize: 16 }} />
+                        </IconButton>
+                      </Tooltip>
+                    </InputAdornment>
+                  ),
+                }}
+              />
             </Grid>
             <Grid item xs={6}>
               <TextField label="AC" type="number" value={newAc} onChange={(e) => setNewAc(e.target.value)} fullWidth size="small" />
@@ -632,8 +791,41 @@ export default function EncounterActive() {
           </Typography>
           <Grid container spacing={1.5}>
             <Grid item xs={12}>
+              <Typography sx={{ fontSize: '0.62rem', color: '#786c5c', textTransform: 'uppercase', letterSpacing: 0.8, fontFamily: '"JetBrains Mono"', mb: 0.75 }}>
+                Slain by
+              </Typography>
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, mb: 1.25 }}>
+                {(encounter.participants as Participant[])
+                  .filter((p) => p.id !== killedParticipant?.id)
+                  .map((p) => {
+                    const selected = killedByName === p.name
+                    return (
+                      <Box
+                        key={p.id}
+                        onClick={() => setKilledByName(selected ? '' : p.name)}
+                        sx={{
+                          px: 1.25, py: 0.5, borderRadius: 1, cursor: 'pointer',
+                          border: selected ? '1px solid rgba(184,72,72,0.7)' : '1px solid rgba(120,108,92,0.25)',
+                          bgcolor: selected ? 'rgba(184,72,72,0.15)' : 'rgba(120,108,92,0.06)',
+                          '&:hover': { borderColor: 'rgba(184,72,72,0.4)', bgcolor: 'rgba(184,72,72,0.08)' },
+                          transition: 'all 0.12s',
+                        }}
+                      >
+                        <Typography sx={{
+                          fontSize: '0.78rem', fontFamily: '"Cinzel", serif',
+                          color: selected ? '#e6a8a8' : '#b4a48a',
+                        }}>
+                          {p.name}
+                        </Typography>
+                        {p.isPlayer && (
+                          <Typography sx={{ fontSize: '0.58rem', color: '#786c5c', fontFamily: '"JetBrains Mono"' }}>player</Typography>
+                        )}
+                      </Box>
+                    )
+                  })}
+              </Box>
               <TextField
-                label="Slain by"
+                label="Or type a name"
                 value={killedByName}
                 onChange={(e) => setKilledByName(e.target.value)}
                 fullWidth size="small"

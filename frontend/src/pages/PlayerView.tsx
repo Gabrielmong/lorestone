@@ -15,14 +15,19 @@ import {
   ListItem,
   ToggleButtonGroup,
   ToggleButton,
+  Tooltip,
+  IconButton,
 } from '@mui/material'
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome'
 import BookIcon from '@mui/icons-material/Book'
 import AccountTreeIcon from '@mui/icons-material/AccountTree'
 import ViewListIcon from '@mui/icons-material/ViewList'
+import CasinoIcon from '@mui/icons-material/Casino'
 import ReputationBar from '../components/ReputationBar'
 import StatusBadge from '../components/StatusBadge'
 import PlayerDecisionTree from '../components/PlayerDecisionTree'
+import DiceRoller from '../components/DiceRoller'
+import { useDiceStore } from '../store/dice'
 
 const PLAYER_VIEW = gql`
   query PlayerView($shareToken: String!) {
@@ -58,6 +63,7 @@ const PLAYER_VIEW = gql`
 export default function PlayerView() {
   const { shareToken } = useParams<{ shareToken: string }>()
   const [decisionView, setDecisionView] = useState<'list' | 'tree'>('tree')
+  const { open: openDice } = useDiceStore()
 
   const { data, loading, error } = useQuery(PLAYER_VIEW, {
     variables: { shareToken },
@@ -309,6 +315,24 @@ export default function PlayerView() {
           </Typography>
         </Box>
       </Box>
+
+      {/* Floating dice button */}
+      <Tooltip title="Dice Roller" placement="left">
+        <IconButton
+          onClick={openDice}
+          sx={{
+            position: 'fixed', bottom: 24, right: 24, zIndex: 1300,
+            width: 52, height: 52, borderRadius: '50%',
+            bgcolor: 'rgba(17,16,9,0.95)', border: '1px solid rgba(200,164,74,0.4)',
+            color: '#c8a44a', boxShadow: '0 4px 20px rgba(0,0,0,0.6)',
+            '&:hover': { bgcolor: 'rgba(200,164,74,0.12)', borderColor: '#c8a44a' },
+          }}
+        >
+          <CasinoIcon />
+        </IconButton>
+      </Tooltip>
+
+      <DiceRoller localOnly />
     </Box>
   )
 }

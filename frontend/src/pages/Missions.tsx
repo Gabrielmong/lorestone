@@ -689,9 +689,23 @@ export default function Missions() {
   const missions: Mission[] = data?.missions ?? []
   const allDecisions = decisionData?.decisions ?? []
   const allItems: LootItem[] = itemsData?.items ?? []
+
   const chapters: { id: string; name: string; orderIndex: number }[] =
     (chaptersData?.campaign?.chapters ?? []).slice().sort((a: { orderIndex: number }, b: { orderIndex: number }) => a.orderIndex - b.orderIndex)
   const selectedMission = missions.find((m) => m.id === selectedId) ?? null
+
+  const groupedMissions = useMemo(() => {
+    const map = new Map<string, { label: string; orderIndex: number; missions: Mission[] }>()
+    missions.forEach((m) => {
+      const key = m.chapter?.id ?? '__none__'
+      const label = m.chapter?.name ?? 'No Chapter'
+      const orderIndex = chapters.findIndex((c) => c.id === m.chapter?.id)
+      if (!map.has(key)) map.set(key, { label, orderIndex: orderIndex === -1 ? 999 : orderIndex, missions: [] })
+      map.get(key)!.missions.push(m)
+    })
+    return Array.from(map.values()).sort((a, b) => a.orderIndex - b.orderIndex)
+  }, [missions, chapters])
+
 
   const handleSelect = (id: string) => {
     setSelectedId(id)
@@ -743,7 +757,7 @@ export default function Missions() {
   }
 
   return (
-    <Box sx={{ display: 'flex', height: isMobile ? 'calc(100vh - 52px)' : 'calc(100vh)', overflow: 'hidden', mx: -2, mt: -2, mb: -2, ...(isMobile ? { mt: 0 } : {}) }}>
+    <Box sx={{ display: 'flex', height: isMobile ? 'calc(100vh - 68px)' : 'calc(100vh)', overflow: 'hidden', mx: { xs: -2, md: -3 }, mt: { xs: 0, md: -3 }, mb: { xs: -2, md: -3 } }}>
 
       {/* Sidebar */}
       {(!isMobile || showSidebar) && (
@@ -771,39 +785,46 @@ export default function Missions() {
                 No missions yet.
               </Typography>
             )}
-            {missions.map((m) => {
-              const isSelected = m.id === selectedId
-              return (
-                <Box key={m.id}
-                  onClick={() => handleSelect(m.id)}
-                  sx={{
-                    display: 'flex', alignItems: 'center', gap: 0.75, px: 1.5, py: 0.75, mx: 0.5,
-                    borderRadius: 1, cursor: 'pointer', mb: 0.25,
-                    bgcolor: isSelected ? 'rgba(200,164,74,0.1)' : 'transparent',
-                    borderLeft: isSelected ? '3px solid #c8a44a' : '3px solid transparent',
-                    '&:hover': { bgcolor: isSelected ? 'rgba(200,164,74,0.12)' : 'rgba(120,108,92,0.08)' },
-                    '&:hover .mission-delete': { opacity: 1 },
-                  }}>
-                  <Typography sx={{ fontSize: '0.9rem', lineHeight: 1, flexShrink: 0 }}>{TYPE_ICONS[m.type] ?? '🎯'}</Typography>
-                  <Box sx={{ flex: 1, minWidth: 0 }}>
-                    <Typography sx={{ fontSize: '0.82rem', color: isSelected ? '#c8a44a' : '#b4a48a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {m.name}
-                    </Typography>
-                    <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', mt: 0.2 }}>
-                      <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: STATUS_COLORS[m.status] ?? '#786c5c', flexShrink: 0 }} />
-                      <Typography sx={{ fontSize: '0.65rem', color: '#786c5c' }}>{m.status}</Typography>
-                      {m.maps.length > 0 && <Typography sx={{ fontSize: '0.6rem', color: '#786c5c' }}>· {m.maps.length} map{m.maps.length > 1 ? 's' : ''}</Typography>}
-                      {m.decisions.length > 0 && <Typography sx={{ fontSize: '0.6rem', color: '#786c5c' }}>· {m.decisions.length}d</Typography>}
+            {groupedMissions.map((group) => (
+              <Box key={group.label}>
+                <Typography sx={{ px: 1.5, pt: 1.25, pb: 0.5, fontSize: '0.6rem', color: '#786c5c', textTransform: 'uppercase', letterSpacing: 1, fontFamily: '"JetBrains Mono"', borderBottom: '1px solid rgba(120,108,92,0.08)' }}>
+                  {group.label}
+                </Typography>
+                {group.missions.map((m) => {
+                  const isSelected = m.id === selectedId
+                  return (
+                    <Box key={m.id}
+                      onClick={() => handleSelect(m.id)}
+                      sx={{
+                        display: 'flex', alignItems: 'center', gap: 0.75, px: 1.5, py: 0.75, mx: 0.5,
+                        borderRadius: 1, cursor: 'pointer', mb: 0.25, mt: 0.25,
+                        bgcolor: isSelected ? 'rgba(200,164,74,0.1)' : 'transparent',
+                        borderLeft: isSelected ? '3px solid #c8a44a' : '3px solid transparent',
+                        '&:hover': { bgcolor: isSelected ? 'rgba(200,164,74,0.12)' : 'rgba(120,108,92,0.08)' },
+                        '&:hover .mission-delete': { opacity: 1 },
+                      }}>
+                      <Typography sx={{ fontSize: '0.9rem', lineHeight: 1, flexShrink: 0 }}>{TYPE_ICONS[m.type] ?? '🎯'}</Typography>
+                      <Box sx={{ flex: 1, minWidth: 0 }}>
+                        <Typography sx={{ fontSize: '0.82rem', color: isSelected ? '#c8a44a' : '#b4a48a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {m.name}
+                        </Typography>
+                        <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', mt: 0.2 }}>
+                          <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: STATUS_COLORS[m.status] ?? '#786c5c', flexShrink: 0 }} />
+                          <Typography sx={{ fontSize: '0.65rem', color: '#786c5c' }}>{m.status}</Typography>
+                          {m.maps.length > 0 && <Typography sx={{ fontSize: '0.6rem', color: '#786c5c' }}>· {m.maps.length} map{m.maps.length > 1 ? 's' : ''}</Typography>}
+                          {m.decisions.length > 0 && <Typography sx={{ fontSize: '0.6rem', color: '#786c5c' }}>· {m.decisions.length}d</Typography>}
+                        </Box>
+                      </Box>
+                      <IconButton className="mission-delete" size="small"
+                        onClick={(e) => { e.stopPropagation(); setPendingDeleteId(m.id) }}
+                        sx={{ opacity: 0, transition: 'opacity 0.15s', p: 0.25, color: '#786c5c', '&:hover': { color: '#b84848' } }}>
+                        <DeleteIcon sx={{ fontSize: 13 }} />
+                      </IconButton>
                     </Box>
-                  </Box>
-                  <IconButton className="mission-delete" size="small"
-                    onClick={(e) => { e.stopPropagation(); setPendingDeleteId(m.id) }}
-                    sx={{ opacity: 0, transition: 'opacity 0.15s', p: 0.25, color: '#786c5c', '&:hover': { color: '#b84848' } }}>
-                    <DeleteIcon sx={{ fontSize: 13 }} />
-                  </IconButton>
-                </Box>
-              )
-            })}
+                  )
+                })}
+              </Box>
+            ))}
           </Box>
         </Box>
       )}

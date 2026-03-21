@@ -140,6 +140,7 @@ type Chapter {
   name: String!
   orderIndex: Int!
   summary: String
+  content: String
   status: ChapterStatus!
   playerVisible: Boolean!
 
@@ -165,6 +166,7 @@ type Character {
   hpCurrent: Int
   armorClass: Int
   speed: Int
+  initiative: Int
   stats: JSON
   attacks: JSON
   specialAbilities: JSON
@@ -400,6 +402,27 @@ type ReputationChange {
 # QUERIES
 # ============================================================
 
+type DiceSet {
+  id: ID!
+  name: String!
+  colorset: String!
+  customBg: String!
+  customFg: String!
+  material: String!
+  surface: String!
+  texture: String!
+}
+
+input SaveDiceSetInput {
+  name: String!
+  colorset: String!
+  customBg: String!
+  customFg: String!
+  material: String!
+  surface: String!
+  texture: String!
+}
+
 type Query {
   # Campaigns
   campaigns: [Campaign!]!
@@ -432,6 +455,9 @@ type Query {
   encounters(campaignId: ID!, status: EncounterStatus): [Encounter!]!
   encounter(id: ID!): Encounter
   activeEncounter(campaignId: ID!): Encounter
+
+  # Dice Sets
+  myDiceSets: [DiceSet!]!
 }
 
 # ============================================================
@@ -439,6 +465,11 @@ type Query {
 # ============================================================
 
 type Mutation {
+  # Campaigns
+  # Dice Sets
+  saveDiceSet(id: ID, input: SaveDiceSetInput!): DiceSet!
+  deleteDiceSet(id: ID!): Boolean!
+
   # Campaigns
   createCampaign(input: CreateCampaignInput!): Campaign!
   updateCampaign(id: ID!, input: UpdateCampaignInput!): Campaign!
@@ -547,6 +578,7 @@ input CreateCharacterInput {
   hpCurrent: Int
   armorClass: Int
   speed: Int
+  initiative: Int
   stats: JSON
   attacks: JSON
   specialAbilities: JSON
@@ -570,6 +602,7 @@ input UpdateCharacterInput {
   hpCurrent: Int
   armorClass: Int
   speed: Int
+  initiative: Int
   stats: JSON
   attacks: JSON
   specialAbilities: JSON

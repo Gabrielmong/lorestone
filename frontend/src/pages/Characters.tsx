@@ -26,6 +26,8 @@ import DeleteIcon from '@mui/icons-material/Delete'
 import { useCampaign } from '../context/campaign'
 import CharacterCard from '../components/CharacterCard'
 import CharacterFormDialog from '../components/CharacterFormDialog'
+import PlayerFormDialog from '../components/PlayerFormDialog'
+import type { PlayerFormValues, PlayerFormWeapon, PlayerFormEquipItem } from '../components/PlayerFormDialog'
 import ConfirmDeleteDialog from '../components/ConfirmDeleteDialog'
 
 const CHARACTERS = gql`
@@ -33,9 +35,14 @@ const CHARACTERS = gql`
     characters(campaignId: $campaignId, role: $role, status: $status, search: $search) {
       id name role description location status hpMax hpCurrent armorClass speed
       corruptionStage corruptionMax miniPrinted miniStlSource miniSearchHint
-      narrativeNotes tags
-      stats
+      narrativeNotes tags stats extra
     }
+  }
+`
+
+const UPDATE_CHARACTER = gql`
+  mutation UpdateCharacterFromList($id: ID!, $input: UpdateCharacterInput!) {
+    updateCharacter(id: $id, input: $input) { id name }
   }
 `
 
@@ -53,7 +60,14 @@ type CharType = {
   status: string; hpMax?: number | null; hpCurrent?: number | null; armorClass?: number | null
   speed?: number | null; corruptionStage: number; corruptionMax: number; miniPrinted: boolean
   miniStlSource?: string | null; miniSearchHint?: string | null; narrativeNotes?: string | null
-  tags: string[]; stats?: Record<string, number> | null
+  tags: string[]; stats?: Record<string, number> | null; extra?: Record<string, any> | null
+}
+
+function modStr(score: number | string): string {
+  const n = typeof score === 'string' ? parseInt(score) : score
+  if (isNaN(n)) return ''
+  const m = Math.floor((n - 10) / 2)
+  return m >= 0 ? `+${m}` : `${m}`
 }
 
 export default function Characters() {
@@ -73,11 +87,113 @@ export default function Characters() {
   })
 
   const [deleteCharacter, { loading: deleting }] = useMutation(DELETE_CHARACTER)
+  const [updateCharacter] = useMutation(UPDATE_CHARACTER)
 
   const handleDelete = async () => {
     if (!deleteId) return
     await deleteCharacter({ variables: { id: deleteId } })
     setDeleteId(null)
+    refetch()
+  }
+
+  const isEditingPlayer = editChar?.role === 'PLAYER'
+  const ex = (editChar?.extra ?? {}) as Record<string, any>
+
+  const playerInitial: Partial<PlayerFormValues> = isEditingPlayer ? {
+    name: editChar!.name,
+    playerName: ex.playerName ?? '',
+    race: ex.race ?? '', class: ex.class ?? '',
+    level: ex.level != null ? String(ex.level) : '',
+    background: ex.background ?? '', alignment: ex.alignment ?? '',
+    description: editChar!.description ?? '', hitDice: ex.hitDice ?? '',
+    hpMax: editChar!.hpMax != null ? String(editChar!.hpMax) : '',
+    armorClass: editChar!.armorClass != null ? String(editChar!.armorClass) : '',
+    speed: ex.speed ?? (editChar!.speed != null ? String(editChar!.speed) : ''),
+    initiative: ex.initiative ?? '', proficiencyBonus: ex.proficiencyBonus ?? '',
+    spellSaveDC: ex.spellSaveDC ?? '',
+    passivePerception: ex.passivePerception != null ? String(ex.passivePerception) : '',
+    strength: ex.strength != null ? String(ex.strength) : '',
+    dexterity: ex.dexterity != null ? String(ex.dexterity) : '',
+    constitution: ex.constitution != null ? String(ex.constitution) : '',
+    intelligence: ex.intelligence != null ? String(ex.intelligence) : '',
+    wisdom: ex.wisdom != null ? String(ex.wisdom) : '',
+    charisma: ex.charisma != null ? String(ex.charisma) : '',
+    gender: ex.gender ?? '', age: ex.age ?? '', height: ex.height ?? '',
+    weight: ex.weight ?? '', eyes: ex.eyes ?? '', hair: ex.hair ?? '', skin: ex.skin ?? '',
+    savingThrows: ex.savingThrows ?? {}, skills: ex.skills ?? {},
+    weapons: (ex.weapons ?? []).map((w: Record<string, string>) => ({ name: w.name ?? '', attackBonus: w.attackBonus ?? '', damage: w.damage ?? '', notes: w.notes ?? '' })),
+    equipment: (ex.equipment ?? []).map((e: Record<string, string>) => ({ name: e.name ?? '', qty: e.qty ?? '' })),
+    currencyCp: ex.currency?.cp != null ? String(ex.currency.cp) : '',
+    currencySp: ex.currency?.sp != null ? String(ex.currency.sp) : '',
+    currencyEp: ex.currency?.ep != null ? String(ex.currency.ep) : '',
+    currencyGp: ex.currency?.gp != null ? String(ex.currency.gp) : '',
+    currencyPp: ex.currency?.pp != null ? String(ex.currency.pp) : '',
+    featuresTraits: ex.featuresTraits ? (ex.featuresTraits as string[]).join('\n\n') : '',
+    actions: ex.actions ? (ex.actions as string[]).join('\n\n') : '',
+    proficienciesAndLanguages: ex.proficienciesAndLanguages ?? '',
+  } : {}
+
+  const handlePlayerSave = async (v: PlayerFormValues) => {
+    if (!editChar) return
+    const scores: Record<string, number | undefined> = {
+      strength: parseInt(v.strength) || undefined, dexterity: parseInt(v.dexterity) || undefined,
+      constitution: parseInt(v.constitution) || undefined, intelligence: parseInt(v.intelligence) || undefined,
+      wisdom: parseInt(v.wisdom) || undefined, charisma: parseInt(v.charisma) || undefined,
+    }
+    const statsMap: Record<string, number> = {}
+    if (scores.strength) statsMap.STR = scores.strength
+    if (scores.dexterity) statsMap.DEX = scores.dexterity
+    if (scores.constitution) statsMap.CON = scores.constitution
+    if (scores.intelligence) statsMap.INT = scores.intelligence
+    if (scores.wisdom) statsMap.WIS = scores.wisdom
+    if (scores.charisma) statsMap.CHA = scores.charisma
+
+    const weapons = (v.weapons as PlayerFormWeapon[]).filter((w) => w.name.trim()).map((w) => ({ name: w.name, attackBonus: w.attackBonus || undefined, damage: w.damage || undefined, notes: w.notes || undefined }))
+    const equipment = (v.equipment as PlayerFormEquipItem[]).filter((e) => e.name.trim()).map((e) => ({ name: e.name, qty: e.qty || undefined }))
+    const cp = parseInt(v.currencyCp) || undefined, sp = parseInt(v.currencySp) || undefined
+    const ep = parseInt(v.currencyEp) || undefined, gp = parseInt(v.currencyGp) || undefined, pp = parseInt(v.currencyPp) || undefined
+    const currency = [cp, sp, ep, gp, pp].some((x) => x != null) ? { cp, sp, ep, gp, pp } : undefined
+    const savingThrows = Object.fromEntries(Object.entries(v.savingThrows).filter(([, val]) => val.trim()))
+    const skills = Object.fromEntries(Object.entries(v.skills).filter(([, val]) => val.trim()))
+
+    await updateCharacter({
+      variables: {
+        id: editChar.id,
+        input: {
+          name: v.name, description: v.description || undefined,
+          hpMax: parseInt(v.hpMax) || undefined, hpCurrent: parseInt(v.hpMax) || undefined,
+          armorClass: parseInt(v.armorClass) || undefined,
+          speed: v.speed ? parseInt(v.speed) || undefined : undefined,
+          stats: Object.keys(statsMap).length ? statsMap : undefined,
+          extra: {
+            ...ex, playerName: v.playerName || undefined, race: v.race || undefined, class: v.class || undefined,
+            level: parseInt(v.level) || undefined, background: v.background || undefined, alignment: v.alignment || undefined,
+            hpMax: parseInt(v.hpMax) || undefined, armorClass: parseInt(v.armorClass) || undefined,
+            speed: v.speed || undefined, initiative: v.initiative || undefined,
+            hitDice: v.hitDice || undefined, proficiencyBonus: v.proficiencyBonus || undefined,
+            spellSaveDC: v.spellSaveDC || undefined,
+            passivePerception: v.passivePerception ? parseInt(v.passivePerception) : undefined,
+            gender: v.gender || undefined, age: v.age || undefined, height: v.height || undefined,
+            weight: v.weight || undefined, eyes: v.eyes || undefined, hair: v.hair || undefined, skin: v.skin || undefined,
+            weapons: weapons.length ? weapons : undefined, equipment: equipment.length ? equipment : undefined, currency,
+            savingThrows: Object.keys(savingThrows).length ? savingThrows : undefined,
+            skills: Object.keys(skills).length ? skills : undefined,
+            featuresTraits: v.featuresTraits ? v.featuresTraits.split('\n\n').filter(Boolean) : undefined,
+            actions: v.actions ? v.actions.split('\n\n').filter(Boolean) : undefined,
+            proficienciesAndLanguages: v.proficienciesAndLanguages || undefined,
+            ...scores,
+            strengthMod: scores.strength ? modStr(scores.strength) : undefined,
+            dexterityMod: scores.dexterity ? modStr(scores.dexterity) : undefined,
+            constitutionMod: scores.constitution ? modStr(scores.constitution) : undefined,
+            intelligenceMod: scores.intelligence ? modStr(scores.intelligence) : undefined,
+            wisdomMod: scores.wisdom ? modStr(scores.wisdom) : undefined,
+            charismaMod: scores.charisma ? modStr(scores.charisma) : undefined,
+          },
+        },
+      },
+    })
+    setFormOpen(false)
+    setEditChar(null)
     refetch()
   }
 
@@ -164,12 +280,22 @@ export default function Characters() {
         )}
       </Grid>
 
-      <CharacterFormDialog
-        open={formOpen}
-        onClose={() => { setFormOpen(false); setEditChar(null) }}
-        onSaved={() => refetch()}
-        character={editChar}
-      />
+      {isEditingPlayer ? (
+        <PlayerFormDialog
+          open={formOpen}
+          onClose={() => { setFormOpen(false); setEditChar(null) }}
+          onSave={handlePlayerSave}
+          initial={playerInitial}
+          title={editChar?.name}
+        />
+      ) : (
+        <CharacterFormDialog
+          open={formOpen}
+          onClose={() => { setFormOpen(false); setEditChar(null) }}
+          onSaved={() => refetch()}
+          character={editChar}
+        />
+      )}
 
       <ConfirmDeleteDialog
         open={!!deleteId}

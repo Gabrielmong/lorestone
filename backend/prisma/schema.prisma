@@ -14,10 +14,28 @@ model User {
   name         String
   dateOfBirth  DateTime?  @map("date_of_birth") @db.Date
   campaigns    Campaign[]
+  diceSets     DiceSet[]
   createdAt    DateTime   @default(now()) @map("created_at")
   updatedAt    DateTime   @updatedAt @map("updated_at")
 
   @@map("users")
+}
+
+model DiceSet {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  colorset  String   @default("")
+  customBg  String   @default("#8b0000") @map("custom_bg")
+  customFg  String   @default("#f5e6c8") @map("custom_fg")
+  material  String   @default("metal")
+  surface   String   @default("green-felt")
+  texture   String   @default("")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("dice_sets")
 }
 
 model Campaign {
@@ -54,6 +72,7 @@ model Chapter {
   name          String
   orderIndex    Int         @default(0) @map("order_index")
   summary       String?
+  content       String?
   status        String      @default("pending")
   playerVisible Boolean     @default(false) @map("player_visible")
   characters   Character[] @relation("CharacterIntroduced")
@@ -81,6 +100,7 @@ model Character {
   hpCurrent           Int?                     @map("hp_current")
   armorClass          Int?                     @map("armor_class")
   speed               Int?
+  initiative          Int?
   stats               Json                     @default("{}")
   attacks             Json                     @default("[]")
   specialAbilities    Json                     @default("[]") @map("special_abilities")

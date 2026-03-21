@@ -32,6 +32,7 @@ export const characterResolvers = {
           hpCurrent: args.input.hpCurrent as number | undefined,
           armorClass: args.input.armorClass as number | undefined,
           speed: args.input.speed as number | undefined,
+          initiative: args.input.initiative as number | undefined,
           stats: args.input.stats ?? {},
           attacks: args.input.attacks ?? [],
           specialAbilities: args.input.specialAbilities ?? [],

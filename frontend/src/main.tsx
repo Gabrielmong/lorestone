@@ -27,6 +27,8 @@ import Profile from './pages/Profile'
 import Landing from './pages/Landing'
 import Wiki from './pages/Wiki'
 import Missions from './pages/Missions'
+import Chapters from './pages/Chapters'
+import Sessions from './pages/Sessions'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
@@ -61,6 +63,8 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
                   <Route path="/players" element={<Players />} />
                   <Route path="/wiki" element={<Wiki />} />
                   <Route path="/missions" element={<Missions />} />
+                  <Route path="/chapters" element={<Chapters />} />
+                  <Route path="/sessions" element={<Sessions />} />
                 </Route>
               </Route>
 
