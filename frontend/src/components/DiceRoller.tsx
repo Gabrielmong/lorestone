@@ -1,13 +1,18 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import {
-  Box, Typography, IconButton, Tooltip, Button, Chip,
+  Box, Typography, IconButton, Tooltip, Button, Chip, CircularProgress,
 } from '@mui/material'
 import CloseIcon from '@mui/icons-material/Close'
 import SettingsIcon from '@mui/icons-material/Settings'
 import RestartAltIcon from '@mui/icons-material/RestartAlt'
 import CasinoIcon from '@mui/icons-material/Casino'
-import { useDiceStore, type RollResult, type DiceSet } from '../store/dice'
+import { useQuery, gql } from '@apollo/client'
+import { useDiceStore, PRESETS, type RollResult, type DiceSet } from '../store/dice'
 import DiceSetManager from './DiceSetManager'
+
+const MY_DICE_SETS = gql`
+  query MyDiceSetsForTray { myDiceSets { id name colorset customBg customFg material surface texture } }
+`
 
 const DIE_TYPES = [
   { sides: 20, label: 'd20' },
@@ -109,6 +114,30 @@ export default function DiceRoller({ localOnly = false }: { localOnly?: boolean 
     onRollCompleteCallback, setOnRollCompleteCallback,
   } = useDiceStore()
 
+  // Fetch custom dice sets from backend when the tray opens
+  const { data: remoteSetsData } = useQuery(MY_DICE_SETS, {
+    skip: localOnly || !isOpen,
+    fetchPolicy: 'network-only',
+  })
+  useEffect(() => {
+    if (!remoteSetsData?.myDiceSets) return
+    const remote: DiceSet[] = remoteSetsData.myDiceSets.map((s: DiceSet) => ({ ...s, isPreset: false }))
+    const store = useDiceStore.getState()
+    remote.forEach((s) => {
+      if (store.customSets.find((c) => c.id === s.id)) store.updateCustomSet(s)
+      else store.addCustomSet(s)
+    })
+    store.customSets
+      .filter((c) => !remote.find((r) => r.id === c.id))
+      .forEach((c) => store.deleteCustomSet(c.id))
+    // Re-apply config to DiceBox — the active set's data may have changed even
+    // though its ID didn't, so the [activeDiceSetId] effect won't fire on its own.
+    if (initializedRef.current && diceBoxRef.current) {
+      const currentSet = useDiceStore.getState().getActiveSet() ?? PRESETS[0]
+      try { diceBoxRef.current.updateConfig(diceBoxConfig(currentSet)) } catch {}
+    }
+  }, [remoteSetsData])
+
   const containerRef    = useRef<HTMLDivElement>(null)
   const diceBoxRef      = useRef<any>(null)
   const initializingRef = useRef(false)
@@ -128,20 +157,30 @@ export default function DiceRoller({ localOnly = false }: { localOnly?: boolean 
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [diceVisible, setDiceVisible] = useState(false)
   const [advMode, setAdvMode] = useState<'none' | 'advantage' | 'disadvantage'>('none')
+  const [currentLabel, setCurrentLabel] = useState<string | null>(null)
+  const [isInitializing, setIsInitializing] = useState(false)
 
   const activeSet = getActiveSet()
   const allSets   = getAllSets()
 
-  // ─── Initialize DiceBox eagerly on mount so it's ready when the user opens the tray ──
+  // ─── Initialize DiceBox on first open (lazy) ────────────────────────────────
+  // Lazy init avoids context/layout issues from mounting at app root before
+  // the browser has a proper rendering context. The auto-roll retry loop
+  // (below) already handles the "not ready yet" case seamlessly.
   useEffect(() => {
+    if (!isOpen) return
     if (initializedRef.current || initializingRef.current) return
     initializingRef.current = true
+    setIsInitializing(true)
 
     ;(async () => {
       try {
         const { default: DiceBox } = await import('@3d-dice/dice-box-threejs')
+        // Always init with the Classic preset — custom colorsets can cause the
+        // DiceBox constructor to fail before initialize() is called. After init
+        // we switch to the user's actual active set via updateConfig.
         const box = new DiceBox('#dice-3d-container', {
-          ...diceBoxConfig(activeSet),
+          ...diceBoxConfig(PRESETS[0]),
           onRollComplete: (results: any) => {
             const ctx = pendingRollCtxRef.current
             if (!ctx) return
@@ -201,14 +240,21 @@ export default function DiceRoller({ localOnly = false }: { localOnly?: boolean 
           },
         })
         await box.initialize()
+        // Now safe to apply the user's actual active set
+        const activeSet = useDiceStore.getState().getActiveSet() ?? PRESETS[0]
+        if (activeSet.id !== PRESETS[0].id) {
+          try { box.updateConfig(diceBoxConfig(activeSet)) } catch {}
+        }
         diceBoxRef.current = box
         initializedRef.current = true
+        setIsInitializing(false)
       } catch (e) {
         console.error('DiceBox init failed:', e)
         initializingRef.current = false
+        setIsInitializing(false)
       }
     })()
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isOpen]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── Update config when dice set changes ────────────────────────────────────
   useEffect(() => {
@@ -232,6 +278,7 @@ export default function DiceRoller({ localOnly = false }: { localOnly?: boolean 
     })
     setCounts(newCounts)
     setModifier(mod)
+    setCurrentLabel(label)
     clearPendingRoll()
 
     if (autoFire) {
@@ -379,24 +426,31 @@ export default function DiceRoller({ localOnly = false }: { localOnly?: boolean 
         <Box sx={{
           position: 'relative', zIndex: 1,
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          px: 2, pt: 1.5, pb: 1,
+          px: 3, pt: 2.5, pb: 1.5,
         }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <CasinoIcon sx={{ color: '#c8a44a', fontSize: 20 }} />
-            <Typography sx={{ fontFamily: '"Cinzel", serif', color: '#c8a44a', fontSize: '1rem' }}>
-              Dice Roller
-            </Typography>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+            <CasinoIcon sx={{ color: '#c8a44a', fontSize: 28 }} />
+            <Box>
+              <Typography sx={{ fontFamily: '"Cinzel", serif', color: '#c8a44a', fontSize: '1.35rem', lineHeight: 1.2 }}>
+                Dice Roller
+              </Typography>
+              {currentLabel && (
+                <Typography sx={{ fontSize: '1rem', color: '#b4a48a', fontFamily: '"Crimson Pro", serif', fontStyle: 'italic', lineHeight: 1.2, mt: 0.25 }}>
+                  {currentLabel}
+                </Typography>
+              )}
+            </Box>
           </Box>
           <Box sx={{ display: 'flex', gap: 0.5 }}>
             <Tooltip title="Dice sets">
-              <IconButton size="small" onClick={() => setSettingsOpen(true)}
+              <IconButton onClick={() => setSettingsOpen(true)}
                 sx={{ color: '#786c5c', '&:hover': { color: '#c8a44a' } }}>
-                <SettingsIcon fontSize="small" />
+                <SettingsIcon />
               </IconButton>
             </Tooltip>
-            <IconButton size="small" onClick={close}
+            <IconButton onClick={() => { close(); setCurrentLabel(null) }}
               sx={{ color: '#786c5c', '&:hover': { color: '#e6d8c0' } }}>
-              <CloseIcon fontSize="small" />
+              <CloseIcon />
             </IconButton>
           </Box>
         </Box>
@@ -639,14 +693,15 @@ export default function DiceRoller({ localOnly = false }: { localOnly?: boolean 
               Reset
             </Button>
             <Button variant="contained" onClick={handleRoll}
-              disabled={totalDice === 0 || isRolling}
+              disabled={totalDice === 0 || isRolling || isInitializing}
+              startIcon={isInitializing ? <CircularProgress size={14} sx={{ color: '#786c5c' }} /> : undefined}
               sx={{
                 bgcolor: '#c8a44a', color: '#0b0906', fontSize: '0.95rem',
                 fontWeight: 700, px: 4, fontFamily: '"Cinzel", serif',
                 '&:hover': { bgcolor: '#d4b05a' },
                 '&:disabled': { bgcolor: 'rgba(200,164,74,0.2)', color: '#786c5c' },
               }}>
-              {isRolling ? 'Rolling…' : 'Roll'}
+              {isInitializing ? 'Loading…' : isRolling ? 'Rolling…' : 'Roll'}
             </Button>
           </Box>
         </Box>

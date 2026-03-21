@@ -4,7 +4,6 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { pageVariants } from '../utils/motion'
 import {
   Box,
-  Badge,
   Drawer,
   List,
   ListItemButton,
@@ -12,7 +11,6 @@ import {
   ListItemText,
   Typography,
   IconButton,
-  Divider,
   Tooltip,
   useMediaQuery,
   useTheme,
@@ -33,12 +31,18 @@ import MenuBookIcon from '@mui/icons-material/MenuBook'
 import LayersIcon from '@mui/icons-material/Layers'
 import MapIcon from '@mui/icons-material/Map'
 import HistoryIcon from '@mui/icons-material/History'
+import { useEffect } from 'react'
+import { useQuery, gql } from '@apollo/client'
 import { useAuthStore } from '../store/auth'
 import { useCampaign } from '../context/campaign'
-import { useDiceStore } from '../store/dice'
+import { useDiceStore, type DiceSet } from '../store/dice'
 import { version } from '../../package.json'
 import { AccountCircle } from '@mui/icons-material'
-import DiceRoller from './DiceRoller'
+import DiceFab from './DiceFab'
+
+const MY_DICE_SETS = gql`
+  query MyDiceSetsLayout { myDiceSets { id name colorset customBg customFg material surface texture } }
+`
 
 const DRAWER_WIDTH = 220
 
@@ -60,8 +64,6 @@ function DrawerContent({ onNavigate, hasAppBar }: { onNavigate?: () => void; has
   const { user, logout } = useAuthStore()
   const { campaignName } = useCampaign()
   const navigate = useNavigate()
-  const { open: openDice, rollHistory } = useDiceStore()
-  const lastRoll = rollHistory[0]
 
   const handleLogout = () => {
     logout()
@@ -71,7 +73,7 @@ function DrawerContent({ onNavigate, hasAppBar }: { onNavigate?: () => void; has
   return (
     <>
       {/* Spacer to clear the mobile AppBar */}
-      {hasAppBar && <Toolbar sx={{ minHeight: '52px !important' }} />}
+      {hasAppBar && <Toolbar sx={{ minHeight: '64px !important' }} />}
       {/* Logo + Campaign Name */}
       <Box sx={{ p: 2, borderBottom: '1px solid rgba(120,108,92,0.3)' }}>
         <Box
@@ -121,22 +123,6 @@ function DrawerContent({ onNavigate, hasAppBar }: { onNavigate?: () => void; has
 
       {/* Bottom */}
       <Box sx={{ p: 1.5, borderTop: '1px solid rgba(120,108,92,0.3)' }}>
-        <Tooltip title="Roll dice">
-          <IconButton onClick={openDice} size="small" sx={{ color: '#786c5c', '&:hover': { color: '#c8a44a' } }}>
-            <Badge
-              badgeContent={lastRoll ? lastRoll.total : null}
-              sx={{
-                '& .MuiBadge-badge': {
-                  bgcolor: '#c8a44a', color: '#0b0906',
-                  fontSize: '0.55rem', minWidth: 16, height: 16,
-                  fontFamily: '"JetBrains Mono"', fontWeight: 700,
-                },
-              }}
-            >
-              <CasinoIcon fontSize="small" />
-            </Badge>
-          </IconButton>
-        </Tooltip>
         <Tooltip title="Profile">
           <IconButton onClick={() => { navigate('/profile'); onNavigate?.() }} size="small" sx={{ color: '#786c5c', '&:hover': { color: '#c8a44a' } }}>
             <AccountCircle fontSize="small" />
@@ -161,6 +147,21 @@ export default function Layout() {
   const isMobile = useMediaQuery(theme.breakpoints.down('md'))
   const [mobileOpen, setMobileOpen] = useState(false)
   const { campaignName } = useCampaign()
+
+  // Fetch custom dice sets on mount so they're available before opening settings
+  const { data: remoteSetsData } = useQuery(MY_DICE_SETS, { fetchPolicy: 'cache-first' })
+  useEffect(() => {
+    if (!remoteSetsData?.myDiceSets) return
+    const remote: DiceSet[] = remoteSetsData.myDiceSets.map((s: DiceSet) => ({ ...s, isPreset: false }))
+    const store = useDiceStore.getState()
+    remote.forEach((s) => {
+      if (store.customSets.find((c) => c.id === s.id)) store.updateCustomSet(s)
+      else store.addCustomSet(s)
+    })
+    store.customSets
+      .filter((c) => !remote.find((r) => r.id === c.id))
+      .forEach((c) => store.deleteCustomSet(c.id))
+  }, [remoteSetsData])
 
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh', bgcolor: '#0b0906' }}>
@@ -217,14 +218,14 @@ export default function Layout() {
         </Drawer>
       )}
 
-      {/* Global dice roller overlay */}
-      <DiceRoller />
+      {/* Draggable dice FAB */}
+      <DiceFab />
 
       {/* Main content */}
       <Box component="main" sx={{
         flex: 1, overflow: 'auto',
         p: { xs: 2, md: 3 },
-        pt: { xs: '52px', md: 3 }, // account for mobile AppBar
+        pt: { xs: '64px', md: 3 }, // account for mobile AppBar
       }}>
         <AnimatePresence mode="wait" initial={false}>
           <motion.div

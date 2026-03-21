@@ -500,16 +500,16 @@ export default function EncounterActive() {
   }
 
   return (
-    <Box>
+    <Box sx={{ pb: { xs: isCompleted ? 0 : '72px', md: 0 } }}>
       {/* Header */}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 3 }}>
         <Box>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5, flexWrap: 'wrap' }}>
             <IconButton size="small" onClick={() => navigate('/encounters')} sx={{ color: '#786c5c' }}>
               <ArrowBackIcon fontSize="small" />
             </IconButton>
             <LocalFireDepartmentIcon sx={{ fontSize: 18, color: '#b84848' }} />
-            <Typography variant="h4" sx={{ color: '#e6d8c0' }}>{encounter.name}</Typography>
+            <Typography variant="h4" sx={{ color: '#e6d8c0', fontSize: { xs: '1.15rem', md: undefined } }}>{encounter.name}</Typography>
             {!isCompleted && (
               <Box sx={{ px: 1.5, py: 0.5, borderRadius: 1, bgcolor: '#1a0909', border: '1px solid rgba(180,72,72,0.4)' }}>
                 <Typography sx={{ fontSize: '0.82rem', fontFamily: '"JetBrains Mono"', color: '#b84848' }}>
@@ -529,7 +529,8 @@ export default function EncounterActive() {
           )}
         </Box>
 
-        <Box sx={{ display: 'flex', gap: 1 }}>
+        {/* Desktop-only action buttons */}
+        <Box sx={{ display: { xs: 'none', md: 'flex' }, gap: 1 }}>
           {!isCompleted && (
             <>
               <Tooltip title="Previous turn">
@@ -557,6 +558,38 @@ export default function EncounterActive() {
           )}
         </Box>
       </Box>
+
+      {/* Mobile fixed bottom action bar */}
+      {!isCompleted && (
+        <Box sx={{
+          display: { xs: 'flex', md: 'none' },
+          position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 1100,
+          bgcolor: '#111009', borderTop: '1px solid rgba(120,108,92,0.3)',
+          px: 1.5, py: 1, gap: 1, alignItems: 'center',
+        }}>
+          <Tooltip title="Previous turn">
+            <IconButton size="small" onClick={() => prevTurn({ variables: { id } })}
+              sx={{ border: '1px solid rgba(120,108,92,0.3)', color: '#786c5c', flexShrink: 0 }}>
+              <SkipPreviousIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+          <Button variant="contained" startIcon={<SkipNextIcon />}
+            onClick={() => nextTurn({ variables: { id } })}
+            sx={{ bgcolor: '#b84848', '&:hover': { bgcolor: '#d45f5f' }, flex: 1 }}>
+            Next
+          </Button>
+          <Button variant="outlined" startIcon={<PersonAddIcon />}
+            onClick={() => setAddOpen(true)}
+            sx={{ borderColor: 'rgba(120,108,92,0.4)', color: '#786c5c', flex: 1 }}>
+            Add
+          </Button>
+          <Button variant="outlined" startIcon={<EmojiEventsIcon />}
+            onClick={() => setEndOpen(true)}
+            sx={{ borderColor: 'rgba(200,164,74,0.3)', color: '#c8a44a', flex: 1 }}>
+            End
+          </Button>
+        </Box>
+      )}
 
       <Box sx={{ display: 'flex', gap: 1.5, mb: 2, flexWrap: 'wrap' }}>
         {encounter.linkedDecision && (

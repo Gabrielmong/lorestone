@@ -8,6 +8,7 @@ import theme from './theme'
 import { CampaignProvider } from './context/campaign'
 import ProtectedRoute from './components/ProtectedRoute'
 import Layout from './components/Layout'
+import DiceRoller from './components/DiceRoller'
 
 import Login from './pages/Login'
 import Register from './pages/Register'
@@ -35,6 +36,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <ApolloProvider client={client}>
       <ThemeProvider theme={theme}>
         <CssBaseline />
+        <DiceRoller />
         <CampaignProvider>
           <BrowserRouter>
             <Routes>

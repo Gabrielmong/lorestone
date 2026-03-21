@@ -17,7 +17,9 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import DeleteIcon from '@mui/icons-material/Delete'
 import FavoriteIcon from '@mui/icons-material/Favorite'
 import ShieldIcon from '@mui/icons-material/Shield'
+import CasinoIcon from '@mui/icons-material/Casino'
 import { useCampaign } from '../context/campaign'
+import { useDiceStore } from '../store/dice'
 import { parseCharacterSheet } from '../utils/parseCharacterSheet'
 import type { ParsedCharacterSheet } from '../utils/parseCharacterSheet'
 import PlayerFormDialog from '../components/PlayerFormDialog'
@@ -226,6 +228,7 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:4000'
 
 export default function Players() {
   const { campaignId } = useCampaign()
+  const { triggerRoll } = useDiceStore()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const theme = useTheme()
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'))
@@ -581,12 +584,16 @@ export default function Players() {
                     const modVal = sheet[MOD_KEY[key] as keyof ParsedCharacterSheet] as string | undefined
                       ?? (score != null ? modStr(score) : undefined)
                     if (!score) return null
+                    const numMod = modVal ? parseInt(modVal) : 0
                     return (
-                      <Box key={abbr} sx={{ flex: '1 1 calc(33.33% - 8px)', minWidth: 60, textAlign: 'center', py: 1, bgcolor: '#111009', borderRadius: 1, border: '1px solid rgba(120,108,92,0.2)' }}>
-                        <Typography sx={{ fontSize: '0.6rem', color: '#786c5c', fontFamily: '"JetBrains Mono"' }}>{abbr}</Typography>
-                        <Typography sx={{ fontSize: '1.1rem', color: '#e6d8c0', fontWeight: 700, fontFamily: '"JetBrains Mono"', lineHeight: 1.2 }}>{score}</Typography>
-                        <Typography sx={{ fontSize: '0.72rem', color: '#c8a44a', fontFamily: '"JetBrains Mono"' }}>{modVal}</Typography>
-                      </Box>
+                      <Tooltip key={abbr} title={`Roll ${abbr} check`}>
+                        <Box onClick={() => triggerRoll('1d20', `${selectedPlayer.name} — ${abbr} check`, numMod)}
+                          sx={{ flex: '1 1 calc(33.33% - 8px)', minWidth: 60, textAlign: 'center', py: 1, bgcolor: '#111009', borderRadius: 1, border: '1px solid rgba(120,108,92,0.2)', cursor: 'pointer', '&:hover': { borderColor: 'rgba(200,164,74,0.5)', bgcolor: '#1a160f' } }}>
+                          <Typography sx={{ fontSize: '0.6rem', color: '#786c5c', fontFamily: '"JetBrains Mono"' }}>{abbr}</Typography>
+                          <Typography sx={{ fontSize: '1.1rem', color: '#e6d8c0', fontWeight: 700, fontFamily: '"JetBrains Mono"', lineHeight: 1.2 }}>{score}</Typography>
+                          <Typography sx={{ fontSize: '0.72rem', color: '#c8a44a', fontFamily: '"JetBrains Mono"' }}>{modVal}</Typography>
+                        </Box>
+                      </Tooltip>
                     )
                   })}
                 </Box>
@@ -598,14 +605,42 @@ export default function Players() {
                 <SheetSection title={`Weapons (${sheet.weapons.length})`} defaultExpanded>
                   <Table size="small">
                     <TableBody>
-                      {sheet.weapons.map((w, i) => (
-                        <TableRow key={i} sx={{ '& td': { border: 0, py: 0.25 } }}>
-                          <TableCell sx={{ color: '#e6d8c0', fontSize: '0.78rem', fontFamily: '"Cinzel", serif' }}>{w.name}</TableCell>
-                          <TableCell sx={{ color: '#c8a44a', fontSize: '0.72rem', fontFamily: '"JetBrains Mono"' }}>{w.attackBonus}</TableCell>
-                          <TableCell sx={{ color: '#b84848', fontSize: '0.72rem', fontFamily: '"JetBrains Mono"' }}>{w.damage}</TableCell>
-                          <TableCell sx={{ color: '#786c5c', fontSize: '0.68rem' }}>{w.notes}</TableCell>
-                        </TableRow>
-                      ))}
+                      {sheet.weapons.map((w, i) => {
+                        const atkBonus = w.attackBonus ? parseInt(w.attackBonus) : 0
+                        // parse damage like "1d8+2" into notation + modifier
+                        const dmgMatch = w.damage ? w.damage.match(/^(\d+d\d+)([+-]\d+)?/) : null
+                        const dmgNotation = dmgMatch ? dmgMatch[1] : null
+                        const dmgMod = dmgMatch?.[2] ? parseInt(dmgMatch[2]) : 0
+                        return (
+                          <TableRow key={i} sx={{ '& td': { border: 0, py: 0.25 } }}>
+                            <TableCell sx={{ color: '#e6d8c0', fontSize: '0.78rem', fontFamily: '"Cinzel", serif' }}>{w.name}</TableCell>
+                            <TableCell>
+                              {w.attackBonus ? (
+                                <Tooltip title={`Roll ${w.name} attack`}>
+                                  <Box component="span" onClick={() => triggerRoll('1d20', `${selectedPlayer.name} — ${w.name} attack`, atkBonus)}
+                                    sx={{ color: '#c8a44a', fontSize: '0.72rem', fontFamily: '"JetBrains Mono"', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 0.4,
+                                      '&:hover': { color: '#e6c76a' } }}>
+                                    {w.attackBonus} <CasinoIcon sx={{ fontSize: 11, opacity: 0.6 }} />
+                                  </Box>
+                                </Tooltip>
+                              ) : null}
+                            </TableCell>
+                            <TableCell>
+                              {w.damage ? (
+                                <Tooltip title={dmgNotation ? `Roll ${w.name} damage` : ''}>
+                                  <Box component="span"
+                                    onClick={dmgNotation ? () => triggerRoll(dmgNotation, `${selectedPlayer.name} — ${w.name} damage`, dmgMod) : undefined}
+                                    sx={{ color: '#b84848', fontSize: '0.72rem', fontFamily: '"JetBrains Mono"', cursor: dmgNotation ? 'pointer' : 'default', display: 'inline-flex', alignItems: 'center', gap: 0.4,
+                                      '&:hover': dmgNotation ? { color: '#d47070' } : {} }}>
+                                    {w.damage} {dmgNotation && <CasinoIcon sx={{ fontSize: 11, opacity: 0.6 }} />}
+                                  </Box>
+                                </Tooltip>
+                              ) : null}
+                            </TableCell>
+                            <TableCell sx={{ color: '#786c5c', fontSize: '0.68rem' }}>{w.notes}</TableCell>
+                          </TableRow>
+                        )
+                      })}
                     </TableBody>
                   </Table>
                 </SheetSection>
@@ -614,12 +649,18 @@ export default function Players() {
               {sheet.savingThrows && Object.keys(sheet.savingThrows).length > 0 && (
                 <SheetSection title="Saving Throws">
                   <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
-                    {Object.entries(sheet.savingThrows).map(([stat, val]) => (
-                      <Box key={stat} sx={{ display: 'flex', gap: 0.5, alignItems: 'center', px: 1, py: 0.25, bgcolor: '#0b0906', borderRadius: 1, border: '1px solid rgba(120,108,92,0.2)' }}>
-                        <Typography sx={{ fontSize: '0.65rem', color: '#786c5c' }}>{stat}</Typography>
-                        <Typography sx={{ fontSize: '0.78rem', color: '#c8a44a', fontFamily: '"JetBrains Mono"', fontWeight: 700 }}>{val}</Typography>
-                      </Box>
-                    ))}
+                    {Object.entries(sheet.savingThrows).map(([stat, val]) => {
+                      const mod = parseInt(val as string)
+                      return (
+                        <Tooltip key={stat} title={`Roll ${stat} save`}>
+                          <Box onClick={() => triggerRoll('1d20', `${selectedPlayer.name} — ${stat} save`, isNaN(mod) ? 0 : mod)}
+                            sx={{ display: 'flex', gap: 0.5, alignItems: 'center', px: 1, py: 0.25, bgcolor: '#0b0906', borderRadius: 1, border: '1px solid rgba(120,108,92,0.2)', cursor: 'pointer', '&:hover': { borderColor: 'rgba(200,164,74,0.4)' } }}>
+                            <Typography sx={{ fontSize: '0.65rem', color: '#786c5c' }}>{stat}</Typography>
+                            <Typography sx={{ fontSize: '0.78rem', color: '#c8a44a', fontFamily: '"JetBrains Mono"', fontWeight: 700 }}>{val}</Typography>
+                          </Box>
+                        </Tooltip>
+                      )
+                    })}
                   </Box>
                 </SheetSection>
               )}
@@ -627,18 +668,30 @@ export default function Players() {
               {sheet.skills && Object.keys(sheet.skills).length > 0 && (
                 <SheetSection title="Skills">
                   <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
-                    {Object.entries(sheet.skills).map(([skill, val]) => (
-                      <Box key={skill} sx={{ display: 'flex', gap: 0.5, alignItems: 'center', px: 0.75, py: 0.2, bgcolor: '#0b0906', borderRadius: 1, border: '1px solid rgba(120,108,92,0.15)' }}>
-                        <Typography sx={{ fontSize: '0.63rem', color: '#786c5c' }}>{skill}</Typography>
-                        <Typography sx={{ fontSize: '0.72rem', color: '#b4a48a', fontFamily: '"JetBrains Mono"' }}>{val}</Typography>
-                      </Box>
-                    ))}
-                    {sheet.customSkills?.map((cs) => (
-                      <Box key={cs.name} sx={{ display: 'flex', gap: 0.5, alignItems: 'center', px: 0.75, py: 0.2, bgcolor: '#0b0906', borderRadius: 1, border: '1px solid rgba(200,164,74,0.2)' }}>
-                        <Typography sx={{ fontSize: '0.63rem', color: '#c8a44a' }}>{cs.name}</Typography>
-                        <Typography sx={{ fontSize: '0.72rem', color: '#b4a48a', fontFamily: '"JetBrains Mono"' }}>{cs.bonus}</Typography>
-                      </Box>
-                    ))}
+                    {Object.entries(sheet.skills).map(([skill, val]) => {
+                      const mod = parseInt(val as string)
+                      return (
+                        <Tooltip key={skill} title={`Roll ${skill}`}>
+                          <Box onClick={() => triggerRoll('1d20', `${selectedPlayer.name} — ${skill}`, isNaN(mod) ? 0 : mod)}
+                            sx={{ display: 'flex', gap: 0.5, alignItems: 'center', px: 0.75, py: 0.2, bgcolor: '#0b0906', borderRadius: 1, border: '1px solid rgba(120,108,92,0.15)', cursor: 'pointer', '&:hover': { borderColor: 'rgba(200,164,74,0.35)' } }}>
+                            <Typography sx={{ fontSize: '0.63rem', color: '#786c5c' }}>{skill}</Typography>
+                            <Typography sx={{ fontSize: '0.72rem', color: '#b4a48a', fontFamily: '"JetBrains Mono"' }}>{val}</Typography>
+                          </Box>
+                        </Tooltip>
+                      )
+                    })}
+                    {sheet.customSkills?.map((cs) => {
+                      const mod = parseInt(cs.bonus)
+                      return (
+                        <Tooltip key={cs.name} title={`Roll ${cs.name}`}>
+                          <Box onClick={() => triggerRoll('1d20', `${selectedPlayer.name} — ${cs.name}`, isNaN(mod) ? 0 : mod)}
+                            sx={{ display: 'flex', gap: 0.5, alignItems: 'center', px: 0.75, py: 0.2, bgcolor: '#0b0906', borderRadius: 1, border: '1px solid rgba(200,164,74,0.2)', cursor: 'pointer', '&:hover': { borderColor: 'rgba(200,164,74,0.5)' } }}>
+                            <Typography sx={{ fontSize: '0.63rem', color: '#c8a44a' }}>{cs.name}</Typography>
+                            <Typography sx={{ fontSize: '0.72rem', color: '#b4a48a', fontFamily: '"JetBrains Mono"' }}>{cs.bonus}</Typography>
+                          </Box>
+                        </Tooltip>
+                      )
+                    })}
                   </Box>
                 </SheetSection>
               )}
