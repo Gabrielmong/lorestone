@@ -132,9 +132,9 @@ export default function DiceRoller({ localOnly = false }: { localOnly?: boolean 
   const activeSet = getActiveSet()
   const allSets   = getAllSets()
 
-  // ─── Initialize DiceBox (once, on first open) ───────────────────────────────
+  // ─── Initialize DiceBox eagerly on mount so it's ready when the user opens the tray ──
   useEffect(() => {
-    if (!isOpen || initializedRef.current || initializingRef.current) return
+    if (initializedRef.current || initializingRef.current) return
     initializingRef.current = true
 
     ;(async () => {
@@ -208,7 +208,7 @@ export default function DiceRoller({ localOnly = false }: { localOnly?: boolean 
         initializingRef.current = false
       }
     })()
-  }, [isOpen]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── Update config when dice set changes ────────────────────────────────────
   useEffect(() => {
