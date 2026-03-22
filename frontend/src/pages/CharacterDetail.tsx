@@ -23,7 +23,7 @@ import { useDiceStore } from '../store/dice'
 const CHARACTER = gql`
   query CharacterDetail($id: ID!) {
     character(id: $id) {
-      id name role description location status
+      id name role description location status portraitUrl
       hpMax hpCurrent armorClass speed initiative
       stats attacks specialAbilities
       corruptionStage corruptionMax narrativeNotes
@@ -251,8 +251,14 @@ export default function CharacterDetail() {
   const combatStats = [
     { label: 'HP', value: c.hpMax != null ? `${c.hpCurrent ?? c.hpMax}/${c.hpMax}` : null, color: '#62a870' },
     { label: 'AC', value: c.armorClass, color: '#c8a44a' },
-    { label: 'Speed', value: c.speed ? `${c.speed} ft.` : null },
-    { label: 'Initiative', value: c.initiative != null ? (c.initiative >= 0 ? `+${c.initiative}` : `${c.initiative}`) : null },
+    { label: 'Speed', value: c.speed ? `${c.speed} ft.` : (ex.speed ? `${ex.speed}` : null) },
+    { label: 'Initiative', value: c.initiative != null ? (c.initiative >= 0 ? `+${c.initiative}` : `${c.initiative}`) : (ex.initiative || null) },
+    ...(isPlayer ? [
+      { label: 'Hit Dice', value: ex.hitDice || null },
+      { label: 'Prof.', value: ex.proficiencyBonus || null },
+      { label: 'Spell DC', value: ex.spellSaveDC || null },
+      { label: 'Pass. Perc.', value: ex.passivePerception != null ? String(ex.passivePerception) : null },
+    ] : []),
   ].filter((s) => s.value != null)
 
   return (
@@ -275,11 +281,29 @@ export default function CharacterDetail() {
 
       {/* Header card */}
       <Box sx={{ bgcolor: '#111009', border: '1px solid rgba(120,108,92,0.25)', borderRadius: 1.5, p: 2, mb: 1.5 }}>
-        {/* Name + badges */}
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
-          <Typography sx={{ fontFamily: '"Cinzel", serif', fontSize: '1.25rem', color: '#e6d8c0' }}>{c.name}</Typography>
-          <StatusBadge status={c.role} />
-          <StatusBadge status={c.status} />
+        {/* Portrait + Name row */}
+        <Box sx={{ display: 'flex', gap: 1.5, mb: 0.5 }}>
+          {c.portraitUrl && (
+            <Box component="img" src={c.portraitUrl} alt={c.name}
+              sx={{ width: 56, height: 56, borderRadius: 1, objectFit: 'cover', objectPosition: 'top', flexShrink: 0, border: '1px solid rgba(120,108,92,0.3)' }} />
+          )}
+          <Box sx={{ flex: 1 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mb: 0.25 }}>
+              <Typography sx={{ fontFamily: '"Cinzel", serif', fontSize: '1.25rem', color: '#e6d8c0' }}>{c.name}</Typography>
+              <StatusBadge status={c.role} />
+              <StatusBadge status={c.status} />
+            </Box>
+            {/* Player subtitle: race · class · level · background */}
+            {isPlayer && (ex.race || ex.class || ex.level || ex.background) && (
+              <Typography sx={{ fontSize: '0.72rem', color: '#786c5c', mb: 0.25 }}>
+                {[ex.race, ex.class, ex.background].filter(Boolean).join(' · ')}
+                {ex.level && <> &nbsp;·&nbsp; <Typography component="span" sx={{ color: '#c8a44a', fontSize: '0.72rem' }}>Lv.{ex.level}</Typography></>}
+              </Typography>
+            )}
+            {isPlayer && ex.playerName && (
+              <Typography sx={{ fontSize: '0.68rem', color: '#786c5c' }}>Player: {ex.playerName}</Typography>
+            )}
+          </Box>
         </Box>
 
         {/* Location */}
@@ -371,6 +395,48 @@ export default function CharacterDetail() {
         </SheetSection>
       )}
 
+      {/* ── PLAYER-SPECIFIC SECTIONS ── */}
+
+      {/* Saving Throws */}
+      {isPlayer && ex.savingThrows && Object.keys(ex.savingThrows).length > 0 && (
+        <SheetSection title="Saving Throws">
+          <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
+            {Object.entries(ex.savingThrows as Record<string, string>).map(([stat, val]) => {
+              const mod = parseInt(val)
+              return (
+                <Tooltip key={stat} title={`Roll ${stat} save`}>
+                  <Box onClick={() => triggerRoll('1d20', `${c.name} — ${stat} save`, isNaN(mod) ? 0 : mod)}
+                    sx={{ display: 'flex', gap: 0.5, alignItems: 'center', px: 1, py: 0.25, bgcolor: '#0b0906', borderRadius: 1, border: '1px solid rgba(120,108,92,0.2)', cursor: 'pointer', '&:hover': { borderColor: 'rgba(200,164,74,0.4)' } }}>
+                    <Typography sx={{ fontSize: '0.65rem', color: '#786c5c' }}>{stat}</Typography>
+                    <Typography sx={{ fontSize: '0.78rem', color: '#c8a44a', fontFamily: '"JetBrains Mono"', fontWeight: 700 }}>{val}</Typography>
+                  </Box>
+                </Tooltip>
+              )
+            })}
+          </Box>
+        </SheetSection>
+      )}
+
+      {/* Skills */}
+      {isPlayer && ex.skills && Object.keys(ex.skills).length > 0 && (
+        <SheetSection title="Skills">
+          <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+            {Object.entries(ex.skills as Record<string, string>).map(([skill, val]) => {
+              const mod = parseInt(val)
+              return (
+                <Tooltip key={skill} title={`Roll ${skill}`}>
+                  <Box onClick={() => triggerRoll('1d20', `${c.name} — ${skill}`, isNaN(mod) ? 0 : mod)}
+                    sx={{ display: 'flex', gap: 0.5, alignItems: 'center', px: 0.75, py: 0.2, bgcolor: '#0b0906', borderRadius: 1, border: '1px solid rgba(120,108,92,0.15)', cursor: 'pointer', '&:hover': { borderColor: 'rgba(200,164,74,0.35)' } }}>
+                    <Typography sx={{ fontSize: '0.63rem', color: '#786c5c' }}>{skill}</Typography>
+                    <Typography sx={{ fontSize: '0.72rem', color: '#b4a48a', fontFamily: '"JetBrains Mono"' }}>{val}</Typography>
+                  </Box>
+                </Tooltip>
+              )
+            })}
+          </Box>
+        </SheetSection>
+      )}
+
       {/* Weapons / Attacks — merged from character.attacks (NPC) and extra.weapons (player) */}
       {(() => {
         const stripType = (s: string) => s.replace(/\s+[A-Za-z].*$/, '').trim()
@@ -435,6 +501,136 @@ export default function CharacterDetail() {
           </SheetSection>
         )
       })()}
+
+      {/* Spells */}
+      {isPlayer && ex.spells && (ex.spells as Array<Record<string, unknown>>).length > 0 && (() => {
+        type SpellEntry = { name: string; level: number; school?: string; castingTime?: string; range?: string; damage?: string; damageMod?: number; damageType?: string; concentration?: boolean; ritual?: boolean; upcastDice?: string; attackBonus?: number; canUpcast?: boolean }
+        const spells = ex.spells as SpellEntry[]
+        const byLevel = spells.reduce<Record<number, SpellEntry[]>>((acc, sp) => { ;(acc[sp.level] ??= []).push(sp); return acc }, {})
+        return (
+          <SheetSection title={`Spells (${spells.length})`}>
+            {/* Spell stats */}
+            {(ex.spellAttackBonus || ex.spellSlots) && (
+              <Box sx={{ display: 'flex', gap: 1, mb: 1.5, flexWrap: 'wrap' }}>
+                {ex.spellAttackBonus && (
+                  <Tooltip title="Roll spell attack">
+                    <Box onClick={() => { const mod = parseInt(ex.spellAttackBonus as string); triggerRoll('1d20', `${c.name} — Spell Attack`, isNaN(mod) ? 0 : mod) }}
+                      sx={{ px: 1.25, py: 0.5, bgcolor: '#0b0906', borderRadius: 1, border: '1px solid rgba(120,108,92,0.2)', cursor: 'pointer', '&:hover': { borderColor: 'rgba(200,164,74,0.4)' } }}>
+                      <Typography sx={{ fontSize: '0.58rem', color: '#786c5c', fontFamily: '"JetBrains Mono"', textTransform: 'uppercase' }}>Spell Atk</Typography>
+                      <Typography sx={{ fontSize: '0.9rem', color: '#c8a44a', fontWeight: 700, fontFamily: '"JetBrains Mono"' }}>{ex.spellAttackBonus as string}</Typography>
+                    </Box>
+                  </Tooltip>
+                )}
+                {ex.spellSlots && Object.entries(ex.spellSlots as Record<string, number>).sort(([a], [b]) => Number(a) - Number(b)).map(([lvl, count]) => (
+                  <Box key={lvl} sx={{ px: 1.25, py: 0.5, bgcolor: '#0b0906', borderRadius: 1, border: '1px solid rgba(120,108,92,0.2)' }}>
+                    <Typography sx={{ fontSize: '0.58rem', color: '#786c5c', fontFamily: '"JetBrains Mono"', textTransform: 'uppercase' }}>Lv {lvl} slots</Typography>
+                    <Typography sx={{ fontSize: '0.9rem', color: '#b4a48a', fontWeight: 700, fontFamily: '"JetBrains Mono"' }}>{count}</Typography>
+                  </Box>
+                ))}
+              </Box>
+            )}
+            {Object.entries(byLevel).sort(([a], [b]) => Number(a) - Number(b)).map(([lvl, lvlSpells]) => (
+              <Box key={lvl} sx={{ mb: 1 }}>
+                <Typography sx={{ fontSize: '0.62rem', color: '#786c5c', textTransform: 'uppercase', letterSpacing: 0.7, fontFamily: '"JetBrains Mono"', mb: 0.5 }}>
+                  {lvl === '0' ? 'Cantrips' : `Level ${lvl}`}
+                </Typography>
+                <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                  {lvlSpells.map((sp, i) => (
+                    <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 0.4, px: 0.75, py: 0.3, borderRadius: 1, bgcolor: '#0b0906', border: `1px solid ${sp.concentration ? 'rgba(98,168,112,0.25)' : 'rgba(120,108,92,0.18)'}` }}>
+                      <Tooltip title={[sp.school, sp.castingTime, sp.range, sp.damageType, sp.concentration ? 'Concentration' : null, sp.ritual ? 'Ritual' : null].filter(Boolean).join(' · ') || sp.name}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.3, cursor: 'default' }}>
+                          <Typography component="span" sx={{ fontSize: '0.72rem', color: '#b4a48a' }}>{sp.name}</Typography>
+                          {sp.concentration && <Typography component="span" sx={{ fontSize: '0.6rem', color: '#62a870' }}>©</Typography>}
+                          {sp.ritual && <Typography component="span" sx={{ fontSize: '0.6rem', color: '#786c5c' }}>R</Typography>}
+                        </Box>
+                      </Tooltip>
+                      {sp.damage && (
+                        <Tooltip title={`Roll ${sp.name} (${sp.damage}${sp.damageType ? ' ' + sp.damageType : ''})`}>
+                          <Box onClick={() => { const m = sp.damage!.match(/(\d+)d(\d+)/); if (m) triggerRoll(`${m[1]}d${m[2]}`, `${c.name} — ${sp.name}`, sp.damageMod ?? 0) }}
+                            sx={{ px: 0.5, py: 0.1, borderRadius: 0.5, cursor: 'pointer', border: '1px solid rgba(184,72,72,0.3)', fontSize: '0.6rem', color: '#b84848', fontFamily: '"JetBrains Mono"', '&:hover': { bgcolor: 'rgba(184,72,72,0.1)' } }}>
+                            {sp.damage}
+                          </Box>
+                        </Tooltip>
+                      )}
+                    </Box>
+                  ))}
+                </Box>
+              </Box>
+            ))}
+          </SheetSection>
+        )
+      })()}
+
+      {/* Equipment & Currency */}
+      {isPlayer && ex.equipment && (ex.equipment as Array<Record<string, string>>).length > 0 && (
+        <SheetSection title={`Equipment (${(ex.equipment as Array<unknown>).length})`}>
+          <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mb: ex.currency ? 1 : 0 }}>
+            {(ex.equipment as Array<{ name: string; qty?: string }>).map((item, i) => (
+              <Chip key={i} label={`${item.qty && item.qty !== '1' ? `${item.qty}× ` : ''}${item.name}`}
+                size="small" sx={{ height: 20, fontSize: '0.68rem', bgcolor: '#0b0906', color: '#b4a48a', border: '1px solid rgba(120,108,92,0.2)' }} />
+            ))}
+          </Box>
+          {ex.currency && Object.values(ex.currency as Record<string, unknown>).some(Boolean) && (
+            <Box sx={{ display: 'flex', gap: 1, mt: 0.75 }}>
+              {Object.entries(ex.currency as Record<string, number>).map(([k, v]) => v ? (
+                <Box key={k} sx={{ textAlign: 'center', px: 1, bgcolor: '#0b0906', borderRadius: 1, border: '1px solid rgba(200,164,74,0.2)' }}>
+                  <Typography sx={{ fontSize: '0.58rem', color: '#786c5c', fontFamily: '"JetBrains Mono"' }}>{k.toUpperCase()}</Typography>
+                  <Typography sx={{ fontSize: '0.88rem', color: '#c8a44a', fontFamily: '"JetBrains Mono"' }}>{v}</Typography>
+                </Box>
+              ) : null)}
+            </Box>
+          )}
+        </SheetSection>
+      )}
+
+      {/* Features & Traits */}
+      {isPlayer && ex.featuresTraits && (ex.featuresTraits as string[]).length > 0 && (
+        <SheetSection title="Features & Traits">
+          {(ex.featuresTraits as string[]).map((block, i) => (
+            <Typography key={i} sx={{ fontSize: '0.75rem', color: '#b4a48a', lineHeight: 1.7, whiteSpace: 'pre-wrap', mb: i < (ex.featuresTraits as string[]).length - 1 ? 1.5 : 0 }}>
+              {block}
+            </Typography>
+          ))}
+        </SheetSection>
+      )}
+
+      {/* Actions */}
+      {isPlayer && ex.actions && (ex.actions as string[]).length > 0 && (
+        <SheetSection title="Actions">
+          {(ex.actions as string[]).map((block, i) => (
+            <Typography key={i} sx={{ fontSize: '0.75rem', color: '#b4a48a', lineHeight: 1.7, whiteSpace: 'pre-wrap', mb: i < (ex.actions as string[]).length - 1 ? 1.5 : 0 }}>
+              {block}
+            </Typography>
+          ))}
+        </SheetSection>
+      )}
+
+      {/* Proficiencies & Languages */}
+      {isPlayer && ex.proficienciesAndLanguages && (
+        <SheetSection title="Proficiencies & Languages">
+          <Typography sx={{ fontSize: '0.75rem', color: '#b4a48a', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>
+            {ex.proficienciesAndLanguages as string}
+          </Typography>
+        </SheetSection>
+      )}
+
+      {/* Character Info */}
+      {isPlayer && [ex.gender, ex.age, ex.height, ex.weight, ex.eyes, ex.hair, ex.skin].some(Boolean) && (
+        <SheetSection title="Character Info">
+          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+            {[
+              { label: 'Gender', value: ex.gender }, { label: 'Age', value: ex.age },
+              { label: 'Height', value: ex.height }, { label: 'Weight', value: ex.weight ? `${ex.weight} lb` : null },
+              { label: 'Eyes', value: ex.eyes }, { label: 'Hair', value: ex.hair }, { label: 'Skin', value: ex.skin },
+            ].filter((s) => s.value).map((s) => (
+              <Box key={s.label} sx={{ px: 1, py: 0.25, bgcolor: '#0b0906', borderRadius: 1, border: '1px solid rgba(120,108,92,0.2)' }}>
+                <Typography sx={{ fontSize: '0.58rem', color: '#786c5c' }}>{s.label}</Typography>
+                <Typography sx={{ fontSize: '0.78rem', color: '#b4a48a' }}>{s.value as string}</Typography>
+              </Box>
+            ))}
+          </Box>
+        </SheetSection>
+      )}
 
       {/* Special Abilities */}
       {abilities.length > 0 && (

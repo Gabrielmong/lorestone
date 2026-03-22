@@ -12,6 +12,21 @@ export interface ParsedWeapon {
   notes?: string
 }
 
+export interface ParsedSpell {
+  name: string
+  level: number          // 0 = cantrip
+  school?: string
+  castingTime?: string   // "Action", "Bonus Action", etc.
+  range?: string
+  concentration?: boolean
+  ritual?: boolean
+  damage?: string        // e.g. "8d6", "3d10"
+  damageType?: string    // e.g. "fire", "force"
+  damageMod?: number
+  upcastDice?: string    // additional dice per slot level above base, e.g. "1d6"
+  canUpcast?: boolean    // spell scales at higher levels (even if upcastDice is unknown, e.g. Magic Missile)
+}
+
 export interface ParsedCharacterSheet {
   // Identity
   name?: string
@@ -86,6 +101,14 @@ export interface ParsedCharacterSheet {
   // Spells (raw from page 4 if present)
   spellcastingClass?: string
   spellcastingAbility?: string
+
+  // Spells (from D&D Beyond import)
+  spells?: ParsedSpell[]
+  spellAttackBonus?: string
+  spellSaveDCValue?: number     // numeric, for reference
+  spellSlots?: Record<string, number>         // max total slots per level
+  spellSlotsRemaining?: Record<string, number> // currently remaining per level
+  pactMagicLevel?: number       // max pact magic slot level (Warlocks)
 
   // Portrait (from D&D Beyond import)
   portraitUrl?: string

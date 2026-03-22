@@ -5,6 +5,7 @@ import {
   CircularProgress, Alert, List, ListItem, Chip, Dialog,
   DialogTitle, DialogContent, DialogActions, ToggleButtonGroup, ToggleButton,
   MenuItem, Select, FormControl, InputLabel, Collapse, IconButton,
+  useTheme, useMediaQuery,
 } from '@mui/material'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import StopIcon from '@mui/icons-material/Stop'
@@ -98,6 +99,9 @@ export default function SessionActive() {
   const [paused, setPaused] = useState(false)
   const pausedAtRef = useRef<number | null>(null)
   const pausedOffsetRef = useRef(0) // accumulated ms of paused time
+
+  const theme = useTheme()
+  const _isMobile = useMediaQuery(theme.breakpoints.down('md'))
 
   const { characterStates, initCharacter, setHP } = useSessionStore()
 
@@ -219,7 +223,7 @@ export default function SessionActive() {
   const events = [...(session.events ?? [])].reverse()
 
   return (
-    <Box>
+    <Box sx={{ pb: { xs: isActive ? '72px' : 0, md: 0 } }}>
       {/* Header */}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Box>
@@ -246,7 +250,7 @@ export default function SessionActive() {
           </FormControl>
         </Box>
 
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+        <Box sx={{ display: { xs: 'none', md: 'flex' }, alignItems: 'center', gap: 1.5 }}>
           {/* Duration display */}
           <Box sx={{
             display: 'flex', alignItems: 'center', gap: 1,
@@ -303,12 +307,13 @@ export default function SessionActive() {
                 {charsCollapsed ? <ExpandMoreIcon fontSize="small" /> : <ExpandLessIcon fontSize="small" />}
               </IconButton>
             </Box>
+            <Box sx={{ overflowX: 'auto', maxWidth: '100%' }}>
             <ToggleButtonGroup
               value={roleFilter}
               onChange={(_, v) => setRoleFilter(v)}
               size="small"
               sx={{
-                flexWrap: 'wrap',
+                flexWrap: { xs: 'nowrap', md: 'wrap' },
                 '& .MuiToggleButton-root': {
                   color: '#786c5c', borderColor: 'rgba(120,108,92,0.3)', px: 1, py: 0.25,
                   fontSize: '0.7rem', textTransform: 'capitalize',
@@ -320,6 +325,7 @@ export default function SessionActive() {
                 <ToggleButton key={r} value={r}>{r}</ToggleButton>
               ))}
             </ToggleButtonGroup>
+            </Box>
           </Box>
 
           <Collapse in={!charsCollapsed}>
@@ -470,6 +476,43 @@ export default function SessionActive() {
           <Button variant="contained" color="error" onClick={handleEndSession}>End Session</Button>
         </DialogActions>
       </Dialog>
+
+      {/* Mobile fixed bottom bar */}
+      <Box sx={{
+        display: { xs: 'flex', md: 'none' },
+        position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 1100,
+        bgcolor: '#111009', borderTop: '1px solid rgba(120,108,92,0.3)',
+        px: 1.5, py: 1, gap: 1, alignItems: 'center',
+      }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, px: 1.5, py: 0.5, bgcolor: '#111009', border: `1px solid ${isActive && timerStarted && !paused ? 'rgba(200,164,74,0.4)' : 'rgba(120,108,92,0.3)'}`, borderRadius: 1 }}>
+          <TimerIcon sx={{ fontSize: 14, color: isActive && timerStarted && !paused ? '#c8a44a' : '#786c5c' }} />
+          <Typography sx={{ fontFamily: '"JetBrains Mono"', fontSize: '0.9rem', color: isActive && timerStarted && !paused ? '#c8a44a' : '#786c5c' }}>
+            {formatElapsed(elapsed)}
+          </Typography>
+          {isActive && timerStarted && (
+            <IconButton size="small" onClick={togglePause} sx={{ p: 0.25, color: paused ? '#62a870' : '#786c5c' }}>
+              {paused ? <PlayArrowIcon sx={{ fontSize: 14 }} /> : <PauseIcon sx={{ fontSize: 14 }} />}
+            </IconButton>
+          )}
+        </Box>
+        {sessionStatus === 'PLANNED' && (
+          <Button variant="contained" startIcon={<PlayArrowIcon />}
+            onClick={() => startSession({ variables: { id } })}
+            size="small" color="success" sx={{ flex: 1 }}>
+            Begin
+          </Button>
+        )}
+        {isActive && (
+          <>
+            <Button variant="outlined" startIcon={<SaveIcon />} onClick={handleSaveHPs} size="small" sx={{ flex: 1 }}>
+              Save HP
+            </Button>
+            <Button variant="contained" color="error" startIcon={<StopIcon />} onClick={() => setEndDialogOpen(true)} size="small" sx={{ flex: 1 }}>
+              End
+            </Button>
+          </>
+        )}
+      </Box>
     </Box>
   )
 }

@@ -6,8 +6,7 @@ import {
   Chip, IconButton, TextField, Select, MenuItem, FormControl,
   Dialog, DialogTitle, DialogContent, DialogActions, Tooltip,
   Divider, LinearProgress, Autocomplete, InputLabel, InputAdornment,
-  useTheme,
-  useMediaQuery,
+  Popover, useTheme, useMediaQuery,
 } from '@mui/material'
 import { useCampaign } from '../context/campaign'
 import { fetchDdbSheet, sheetToUpdateInput } from '../utils/ddbSync'
@@ -82,7 +81,7 @@ const UPDATE_CHARACTER = gql`
 const CAMPAIGN_CHARS = gql`
   query EncounterChars($campaignId: ID!) {
     characters(campaignId: $campaignId) {
-      id name role hpMax hpCurrent armorClass initiative stats
+      id name role hpMax hpCurrent armorClass initiative stats portraitUrl
     }
   }
 `
@@ -96,6 +95,18 @@ type Attack = { name: string; bonus: number; damage: string }
 type NormalizedAttack = {
   name: string; bonus: number; damage: string
   dmgNotation: string; dmgMod: number; notes?: string
+}
+
+type SpellEntry = { name: string; level: number; damage?: string; damageMod?: number; damageType?: string; upcastDice?: string; canUpcast?: boolean; castingTime?: string; range?: string; concentration?: boolean }
+
+/** Compute effective damage dice for a spell cast at a given slot level */
+function computeSpellDamage(spell: SpellEntry, castLevel: number): string | undefined {
+  if (!spell.damage) return undefined
+  if (castLevel <= spell.level || !spell.upcastDice) return spell.damage
+  const bm = spell.damage.match(/^(\d+)d(\d+)$/)
+  const um = spell.upcastDice.match(/^(\d+)d(\d+)$/)
+  if (!bm || !um || bm[2] !== um[2]) return spell.damage
+  return `${parseInt(bm[1]) + parseInt(um[1]) * (castLevel - spell.level)}d${bm[2]}`
 }
 
 /** Strip damage type suffix ("1d8+2 Slashing" → "1d8+2") */
@@ -151,7 +162,7 @@ type Participant = {
   character?: { id: string; name: string; attacks?: Attack[] | null; extra?: unknown; portraitUrl?: string | null } | null
 }
 
-type CampaignChar = { id: string; name: string; role: string; hpMax?: number | null; hpCurrent?: number | null; armorClass?: number | null; initiative?: number | null; stats?: Record<string, number> | null }
+type CampaignChar = { id: string; name: string; role: string; hpMax?: number | null; hpCurrent?: number | null; armorClass?: number | null; initiative?: number | null; stats?: Record<string, number> | null; portraitUrl?: string | null }
 
 export default function EncounterActive() {
   const { id } = useParams<{ id: string }>()
@@ -232,7 +243,7 @@ export default function EncounterActive() {
     endEncounter({ variables })
   }, [data, updateCharacter, endEncounter])
 
-  const { data: charsData } = useQuery(CAMPAIGN_CHARS, { variables: { campaignId }, skip: !campaignId })
+  const { data: charsData } = useQuery(CAMPAIGN_CHARS, { variables: { campaignId }, skip: !campaignId, fetchPolicy: 'cache-and-network' })
   const campaignChars: CampaignChar[] = charsData?.characters ?? []
 
   const { triggerAutoRoll, triggerRoll } = useDiceStore()
@@ -255,6 +266,38 @@ export default function EncounterActive() {
 
   // HP delta per participant
   const [hpDelta, setHpDelta] = useState<Record<string, string>>({})
+
+  // Spell cast level picker
+  const [spellCast, setSpellCast] = useState<{
+    pos: { top: number; left: number }; pName: string; spell: SpellEntry; availableLevels: number[]
+  } | null>(null)
+
+  const rollSpell = (pName: string, spell: SpellEntry, castLevel: number) => {
+    const dmgDice = computeSpellDamage(spell, castLevel)
+    if (!dmgDice) return
+    const m = dmgDice.match(/(\d+)d(\d+)/)
+    if (m) triggerRoll(`${m[1]}d${m[2]}`, `${pName} — ${spell.name}${castLevel > spell.level ? ` (Lv ${castLevel})` : ''}`, spell.damageMod ?? 0)
+    setSpellCast(null)
+  }
+
+  const openSpellDmg = (e: React.MouseEvent, pName: string, spell: SpellEntry, extraObj: Record<string, unknown> | null) => {
+    const pactLevel = extraObj?.pactMagicLevel as number | undefined
+    const slots = extraObj?.spellSlots as Record<string, number> | undefined
+    if (spell.level === 0) { rollSpell(pName, spell, 0); return }
+    let availableLevels: number[]
+    if (pactLevel) {
+      availableLevels = spell.level <= pactLevel ? [pactLevel] : [spell.level]
+    } else if (spell.upcastDice || spell.canUpcast) {
+      // Show all levels from spell's base level up to the character's max slot level
+      const slotLevels = slots ? Object.keys(slots).map(Number) : []
+      const maxLevel = slotLevels.length ? Math.max(...slotLevels) : spell.level
+      availableLevels = Array.from({ length: maxLevel - spell.level + 1 }, (_, i) => spell.level + i)
+    } else {
+      rollSpell(pName, spell, spell.level); return
+    }
+    if (availableLevels.length === 1) { rollSpell(pName, spell, availableLevels[0]); return }
+    setSpellCast({ pos: { top: e.clientY, left: e.clientX }, pName, spell, availableLevels })
+  }
 
   // Kill tracking dialog
   const [killDialogOpen, setKillDialogOpen] = useState(false)
@@ -528,6 +571,112 @@ export default function EncounterActive() {
           )
         })()}
 
+        {/* Spells */}
+        {(() => {
+          const rawExtra = p.character?.extra
+          const extraObj = typeof rawExtra === 'string'
+            ? (JSON.parse(rawExtra) as Record<string, unknown>)
+            : (rawExtra as Record<string, unknown> | null)
+          const spells = extraObj?.spells as SpellEntry[] | undefined
+          const spellAtk = extraObj?.spellAttackBonus as string | undefined
+          const slots = extraObj?.spellSlots as Record<string, number> | undefined
+          const slotsRemaining = extraObj?.spellSlotsRemaining as Record<string, number> | undefined
+          const pactLevel = extraObj?.pactMagicLevel as number | undefined
+          if (!spells?.length) return null
+          const cantrips = spells.filter((s) => s.level === 0)
+          const leveled = spells.filter((s) => s.level > 0)
+          const slotEntries = slots ? Object.entries(slots).sort(([a], [b]) => Number(a) - Number(b)) : []
+          return (
+            <Box sx={{ mt: 0.75 }}>
+              {/* Header: label + atk bonus + slot tracker */}
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 0.4, flexWrap: 'wrap' }}>
+                <Typography sx={{ fontSize: '0.6rem', color: '#786c5c', textTransform: 'uppercase', letterSpacing: 0.6, fontFamily: '"JetBrains Mono"' }}>
+                  Spells
+                </Typography>
+                {spellAtk && (
+                  <Tooltip title={`Roll spell attack (d20${spellAtk})`}>
+                    <Box onClick={() => { const m = parseInt(spellAtk); triggerRoll('1d20', `${p.name} — Spell Attack`, isNaN(m) ? 0 : m) }}
+                      sx={{ px: 0.6, py: 0.1, borderRadius: 0.5, cursor: 'pointer', border: '1px solid rgba(98,168,112,0.3)', fontSize: '0.58rem', color: '#62a870', fontFamily: '"JetBrains Mono"', '&:hover': { bgcolor: 'rgba(98,168,112,0.1)' } }}>
+                      {spellAtk} ATK
+                    </Box>
+                  </Tooltip>
+                )}
+                {/* Slot dots: ●=remaining ○=used */}
+                {slotEntries.map(([lvl, total]) => {
+                  const remaining = slotsRemaining?.[lvl] ?? 0
+                  const isPact = pactLevel === Number(lvl)
+                  return (
+                    <Box key={lvl} sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
+                      <Typography sx={{ fontSize: '0.52rem', color: isPact ? '#c8a44a' : '#786c5c', fontFamily: '"JetBrains Mono"' }}>
+                        {isPact ? `P${lvl}` : `L${lvl}`}
+                      </Typography>
+                      {Array.from({ length: total }).map((_, i) => (
+                        <Box key={i} sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: i < remaining ? (isPact ? '#c8a44a' : '#b4a48a') : 'transparent', border: `1px solid ${isPact ? 'rgba(200,164,74,0.5)' : 'rgba(180,164,138,0.4)'}` }} />
+                      ))}
+                    </Box>
+                  )
+                })}
+              </Box>
+              {/* Cantrips */}
+              {cantrips.length > 0 && (
+                <Box sx={{ display: 'flex', gap: 0.4, flexWrap: 'wrap', mb: 0.3 }}>
+                  {cantrips.map((sp, i) => (
+                    <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 0.3, px: 0.75, py: 0.15, bgcolor: 'rgba(120,108,92,0.06)', border: '1px solid rgba(120,108,92,0.18)', borderRadius: 0.75 }}>
+                      <Tooltip title={[sp.castingTime, sp.range, sp.damageType].filter(Boolean).join(' · ') || sp.name}>
+                        <Typography sx={{ fontSize: '0.65rem', color: '#786c5c', fontFamily: '"JetBrains Mono"', cursor: 'default' }}>{sp.name}</Typography>
+                      </Tooltip>
+                      {sp.damage && (
+                        <Tooltip title={`Roll ${sp.name} (${sp.damage}${sp.damageType ? ' ' + sp.damageType : ''})`}>
+                          <Box onClick={(e) => openSpellDmg(e, p.name, sp, extraObj)}
+                            sx={{ px: 0.5, py: 0.05, borderRadius: 0.4, cursor: 'pointer', border: '1px solid rgba(184,72,72,0.3)', fontSize: '0.55rem', color: '#b84848', fontFamily: '"JetBrains Mono"', '&:hover': { bgcolor: 'rgba(184,72,72,0.1)' } }}>
+                            {sp.damage}
+                          </Box>
+                        </Tooltip>
+                      )}
+                    </Box>
+                  ))}
+                </Box>
+              )}
+              {/* Leveled spells */}
+              {leveled.length > 0 && (
+                <Box sx={{ display: 'flex', gap: 0.4, flexWrap: 'wrap' }}>
+                  {leveled.map((sp, i) => {
+                    // For Warlocks, always show damage at pact level; others show base
+                    const effectiveDmg = pactLevel && sp.level > 0 && sp.level <= pactLevel
+                      ? computeSpellDamage(sp, pactLevel)
+                      : sp.damage
+                    const isUpcastable = !pactLevel && !!(sp.upcastDice || sp.canUpcast)
+                    const dmgTooltip = pactLevel
+                      ? `Roll ${sp.name} at Lv ${pactLevel} (pact magic)`
+                      : isUpcastable
+                        ? 'Click to choose cast level'
+                        : `Roll ${sp.name} (${sp.damage})`
+                    return (
+                    <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 0.3, px: 0.75, py: 0.15, bgcolor: 'rgba(98,168,112,0.05)', border: `1px solid ${sp.concentration ? 'rgba(98,168,112,0.25)' : 'rgba(120,108,92,0.15)'}`, borderRadius: 0.75 }}>
+                      <Tooltip title={[`Lv ${sp.level}`, sp.castingTime, sp.range, sp.damageType, sp.upcastDice ? `+${sp.upcastDice}/lvl` : null, sp.concentration ? 'Conc.' : null].filter(Boolean).join(' · ')}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.2, cursor: 'default' }}>
+                          <Typography component="span" sx={{ fontSize: '0.65rem', color: '#b4a48a', fontFamily: '"JetBrains Mono"' }}>{sp.name}</Typography>
+                          {sp.concentration && <Typography component="span" sx={{ fontSize: '0.58rem', color: '#62a870' }}>©</Typography>}
+                          {isUpcastable && <Typography component="span" sx={{ fontSize: '0.52rem', color: '#c8a44a', ml: 0.2 }}>↑</Typography>}
+                        </Box>
+                      </Tooltip>
+                      {effectiveDmg && (
+                        <Tooltip title={dmgTooltip}>
+                          <Box onClick={(e) => openSpellDmg(e, p.name, sp, extraObj)}
+                            sx={{ px: 0.5, py: 0.05, borderRadius: 0.4, cursor: 'pointer', border: `1px solid ${isUpcastable ? 'rgba(200,164,74,0.4)' : 'rgba(184,72,72,0.3)'}`, fontSize: '0.55rem', color: isUpcastable ? '#c8a44a' : '#b84848', fontFamily: '"JetBrains Mono"', '&:hover': { bgcolor: 'rgba(184,72,72,0.08)' } }}>
+                            {effectiveDmg}
+                          </Box>
+                        </Tooltip>
+                      )}
+                    </Box>
+                    )
+                  })}
+                </Box>
+              )}
+            </Box>
+          )
+        })()}
+
         {/* Conditions */}
         <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 0.5 }}>
           {p.conditions.map((c) => (
@@ -797,6 +946,20 @@ export default function EncounterActive() {
                     setNewAc(c.armorClass != null ? String(c.armorClass) : '')
                   }
                 }}
+                renderOption={(props, c) => (
+                  <Box component="li" {...props} sx={{ display: 'flex', alignItems: 'center', gap: 1, py: '6px !important' }}>
+                    {c.portraitUrl
+                      ? <Box component="img" src={c.portraitUrl} alt="" sx={{ width: 28, height: 28, borderRadius: '50%', objectFit: 'cover', flexShrink: 0, border: '1px solid rgba(120,108,92,0.3)' }} />
+                      : <Box sx={{ width: 28, height: 28, borderRadius: '50%', bgcolor: '#1a160f', border: '1px solid rgba(120,108,92,0.2)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <Typography sx={{ fontSize: '0.65rem', color: '#786c5c' }}>{c.name[0]}</Typography>
+                        </Box>
+                    }
+                    <Box>
+                      <Typography sx={{ fontSize: '0.85rem', color: '#e6d8c0' }}>{c.name}</Typography>
+                      <Typography sx={{ fontSize: '0.68rem', color: '#786c5c', textTransform: 'capitalize' }}>{c.role.toLowerCase()}</Typography>
+                    </Box>
+                  </Box>
+                )}
                 renderInput={(params) => <TextField {...params} label="Pick existing character (optional)" size="small" />}
                 clearOnEscape
               />
@@ -992,6 +1155,46 @@ export default function EncounterActive() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Spell cast level picker */}
+      <Popover
+        open={!!spellCast}
+        anchorReference="anchorPosition"
+        anchorPosition={spellCast?.pos}
+        onClose={() => setSpellCast(null)}
+        transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+        PaperProps={{ sx: { bgcolor: '#1a1612', border: '1px solid rgba(120,108,92,0.4)', p: 1 } }}
+      >
+        {spellCast && (
+          <Box>
+            <Typography sx={{ fontSize: '0.7rem', color: '#786c5c', mb: 0.75, fontFamily: '"JetBrains Mono"' }}>
+              Cast {spellCast.spell.name} at level:
+            </Typography>
+            <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+              {spellCast.availableLevels.map((lvl) => (
+                <Box
+                  key={lvl}
+                  onClick={() => rollSpell(spellCast.pName, spellCast.spell, lvl)}
+                  sx={{
+                    px: 1, py: 0.4, borderRadius: 0.75, cursor: 'pointer',
+                    border: `1px solid ${lvl === spellCast.spell.level ? 'rgba(200,164,74,0.5)' : 'rgba(98,168,112,0.4)'}`,
+                    color: lvl === spellCast.spell.level ? '#c8a44a' : '#62a870',
+                    fontSize: '0.75rem', fontFamily: '"JetBrains Mono"',
+                    '&:hover': { bgcolor: 'rgba(200,164,74,0.1)' },
+                  }}
+                >
+                  {lvl === 0 ? 'Cantrip' : `Lv ${lvl}`}
+                  {spellCast.spell.upcastDice && lvl > spellCast.spell.level && (
+                    <Typography component="span" sx={{ fontSize: '0.6rem', color: '#786c5c', ml: 0.4 }}>
+                      {computeSpellDamage(spellCast.spell, lvl)}
+                    </Typography>
+                  )}
+                </Box>
+              ))}
+            </Box>
+          </Box>
+        )}
+      </Popover>
     </Box>
   )
 }

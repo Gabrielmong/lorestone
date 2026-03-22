@@ -37,7 +37,7 @@ const CHARACTERS = gql`
     characters(campaignId: $campaignId, role: $role, status: $status, search: $search) {
       id name role description location status hpMax hpCurrent armorClass speed
       corruptionStage corruptionMax miniPrinted miniStlSource miniSearchHint
-      narrativeNotes tags stats extra
+      narrativeNotes tags stats extra portraitUrl
     }
   }
 `
@@ -63,6 +63,7 @@ type CharType = {
   speed?: number | null; corruptionStage: number; corruptionMax: number; miniPrinted: boolean
   miniStlSource?: string | null; miniSearchHint?: string | null; narrativeNotes?: string | null
   tags: string[]; stats?: Record<string, number> | null; extra?: Record<string, any> | null
+  portraitUrl?: string | null
 }
 
 function modStr(score: number | string): string {

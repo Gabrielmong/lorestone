@@ -1,13 +1,16 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useMutation, gql } from '@apollo/client'
 import {
   Dialog, DialogTitle, DialogContent, DialogActions,
   Button, TextField, Select, MenuItem, FormControl, InputLabel,
   Grid, Typography, Divider, FormControlLabel, Checkbox, Box,
-  IconButton, useTheme, useMediaQuery,
+  IconButton, CircularProgress, useTheme, useMediaQuery,
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
 import DeleteIcon from '@mui/icons-material/Delete'
+import PhotoCameraIcon from '@mui/icons-material/PhotoCamera'
+
+const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:4000'
 import { useCampaign } from '../context/campaign'
 
 const CREATE_CHARACTER = gql`
@@ -39,11 +42,13 @@ const CURRENCY_KEYS: Array<[string, string]> = [
 interface AttackRow { name: string; bonus: string; damage: string }
 interface AbilityRow { name: string; description: string }
 interface EquipRow { name: string; qty: string }
+interface SpellRow { name: string; level: string; school: string; castingTime: string; range: string; damage: string; damageMod: string; damageType: string; concentration: boolean; ritual: boolean }
 
 interface CharacterExtra {
   savingThrows?: Record<string, string>
   skills?: Record<string, string>
   equipment?: Array<{ name: string; qty?: string }>
+  spells?: Array<{name:string; level:number; damage?:string; damageMod?:number; damageType?:string; castingTime?:string; range?:string; concentration?:boolean; ritual?:boolean}>
   currency?: Record<string, number | undefined>
   gender?: string; age?: string; height?: string; weight?: string
   eyes?: string; hair?: string; skin?: string
@@ -66,6 +71,7 @@ interface CharacterData {
   miniPrinted?: boolean; miniStlSource?: string | null; miniSearchHint?: string | null
   tags?: string[]
   extra?: CharacterExtra | null
+  portraitUrl?: string | null
 }
 
 interface Props {
@@ -100,6 +106,8 @@ export default function CharacterFormDialog({ open, onClose, onSaved, character 
   const isEdit = !!character?.id
   const theme = useTheme()
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'))
+  const portraitInputRef = useRef<HTMLInputElement>(null)
+  const [portraitUploading, setPortraitUploading] = useState(false)
 
   // ── Basic ──
   const [name, setName] = useState('')
@@ -141,6 +149,7 @@ export default function CharacterFormDialog({ open, onClose, onSaved, character 
   // ── Equipment ──
   const [equipment, setEquipment] = useState<EquipRow[]>([])
   const [currency, setCurrency] = useState<Record<string, string>>({ cp: '', sp: '', ep: '', gp: '', pp: '' })
+  const [spells, setSpells] = useState<SpellRow[]>([])
 
   // ── Character info ──
   const [gender, setGender] = useState('')
@@ -150,6 +159,9 @@ export default function CharacterFormDialog({ open, onClose, onSaved, character 
   const [eyes, setEyes] = useState('')
   const [hair, setHair] = useState('')
   const [skin, setSkin] = useState('')
+
+  // ── Portrait ──
+  const [portraitUrl, setPortraitUrl] = useState('')
 
   // ── Corruption & mini ──
   const [corruptionMax, setCorruptionMax] = useState('')
@@ -199,6 +211,13 @@ export default function CharacterFormDialog({ open, onClose, onSaved, character 
     setProficienciesAndLanguages(ex.proficienciesAndLanguages ?? '')
 
     setEquipment(ex.equipment?.map((e) => ({ name: e.name ?? '', qty: e.qty ?? '' })) ?? [])
+    setSpells((ex as any).spells?.map((sp: any) => ({
+      name: sp.name ?? '', level: sp.level != null ? String(sp.level) : '0',
+      school: sp.school ?? '', castingTime: sp.castingTime ?? 'Action',
+      range: sp.range ?? '', damage: sp.damage ?? '',
+      damageMod: sp.damageMod != null ? String(sp.damageMod) : '',
+      damageType: sp.damageType ?? '', concentration: sp.concentration ?? false, ritual: sp.ritual ?? false,
+    })) ?? [])
     setCurrency({
       cp: ex.currency?.cp != null ? String(ex.currency.cp) : '',
       sp: ex.currency?.sp != null ? String(ex.currency.sp) : '',
@@ -220,6 +239,7 @@ export default function CharacterFormDialog({ open, onClose, onSaved, character 
     setMiniPrinted(character?.miniPrinted ?? false)
     setMiniStlSource(character?.miniStlSource ?? '')
     setMiniSearchHint(character?.miniSearchHint ?? '')
+    setPortraitUrl(character?.portraitUrl ?? '')
   }, [open, character])
 
   const [createCharacter, { loading: creating }] = useMutation(CREATE_CHARACTER)
@@ -241,6 +261,11 @@ export default function CharacterFormDialog({ open, onClose, onSaved, character 
   const updateEquip = (i: number, field: keyof EquipRow, val: string) =>
     setEquipment((p) => p.map((e, idx) => idx === i ? { ...e, [field]: val } : e))
   const removeEquip = (i: number) => setEquipment((p) => p.filter((_, idx) => idx !== i))
+
+  const addSpell = () => setSpells((p) => [...p, { name: '', level: '0', school: '', castingTime: 'Action', range: '', damage: '', damageMod: '', damageType: '', concentration: false, ritual: false }])
+  const updateSpell = (i: number, field: keyof SpellRow, val: string | boolean) =>
+    setSpells((p) => p.map((s, idx) => idx === i ? { ...s, [field]: val } : s))
+  const removeSpell = (i: number) => setSpells((p) => p.filter((_, idx) => idx !== i))
 
   const handleSave = async () => {
     const statsJson: Record<string, number> = {}
@@ -283,6 +308,20 @@ export default function CharacterFormDialog({ open, onClose, onSaved, character 
       ...(proficienciesAndLanguages ? { proficienciesAndLanguages } : {}),
       ...(featuresTraits ? { featuresTraits: featuresTraits.split('\n\n').filter(Boolean) } : {}),
       ...(actions ? { actions: actions.split('\n\n').filter(Boolean) } : {}),
+      ...(spells.filter((s) => s.name.trim()).length ? {
+        spells: spells.filter((s) => s.name.trim()).map((s) => ({
+          name: s.name,
+          level: parseInt(s.level) || 0,
+          school: s.school || undefined,
+          castingTime: s.castingTime || undefined,
+          range: s.range || undefined,
+          damage: s.damage || undefined,
+          damageMod: s.damageMod ? (parseInt(s.damageMod) || 0) : undefined,
+          damageType: s.damageType || undefined,
+          concentration: s.concentration || undefined,
+          ritual: s.ritual || undefined,
+        }))
+      } : {}),
     }
 
     const input = {
@@ -307,6 +346,7 @@ export default function CharacterFormDialog({ open, onClose, onSaved, character 
       miniSearchHint: miniSearchHint || undefined,
       tags: tags.split(',').map((t) => t.trim()).filter(Boolean),
       extra,
+      portraitUrl: portraitUrl || undefined,
     }
 
     if (isEdit) {
@@ -334,6 +374,65 @@ export default function CharacterFormDialog({ open, onClose, onSaved, character 
           <Grid item xs={12}><SectionLabel>Identity</SectionLabel></Grid>
           <Grid item xs={12} sm={6}>
             <TextField {...fs} label="Name *" value={name} onChange={(e) => setName(e.target.value)} />
+          </Grid>
+          <Grid item xs={12} sm={6}>
+            <input ref={portraitInputRef} type="file" accept="image/*" style={{ display: 'none' }}
+              onChange={async (e) => {
+                const file = e.target.files?.[0]
+                if (!file) return
+                e.target.value = ''
+                setPortraitUploading(true)
+                try {
+                  const form = new FormData()
+                  form.append('file', file)
+                  const res = await fetch(`${API_BASE}/api/upload/image?folder=portraits`, { method: 'POST', body: form })
+                  if (!res.ok) throw new Error('Upload failed')
+                  const { url } = await res.json()
+                  setPortraitUrl(url)
+                } catch { /* silent */ } finally { setPortraitUploading(false) }
+              }}
+            />
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+              {/* Portrait preview / placeholder */}
+              <Box
+                onClick={() => portraitInputRef.current?.click()}
+                sx={{
+                  width: 56, height: 56, flexShrink: 0, borderRadius: 1,
+                  border: '1px dashed rgba(120,108,92,0.4)', cursor: 'pointer',
+                  overflow: 'hidden', position: 'relative',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  bgcolor: '#0b0906',
+                  '&:hover': { borderColor: 'rgba(200,164,74,0.5)', bgcolor: '#111009' },
+                }}
+              >
+                {portraitUploading ? (
+                  <CircularProgress size={18} sx={{ color: '#c8a44a' }} />
+                ) : portraitUrl ? (
+                  <Box component="img" src={portraitUrl} alt=""
+                    sx={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top' }}
+                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+                  />
+                ) : (
+                  <PhotoCameraIcon sx={{ fontSize: 20, color: '#786c5c' }} />
+                )}
+              </Box>
+              <Box sx={{ flex: 1 }}>
+                <Button size="small" variant="outlined" startIcon={<PhotoCameraIcon sx={{ fontSize: 14 }} />}
+                  onClick={() => portraitInputRef.current?.click()} disabled={portraitUploading}
+                  sx={{ color: '#786c5c', borderColor: 'rgba(120,108,92,0.3)', fontSize: '0.72rem', mb: 0.5, '&:hover': { borderColor: 'rgba(200,164,74,0.4)', color: '#c8a44a' } }}>
+                  {portraitUploading ? 'Uploading…' : 'Upload Portrait'}
+                </Button>
+                {portraitUrl && (
+                  <Button size="small" onClick={() => setPortraitUrl('')}
+                    sx={{ color: '#786c5c', fontSize: '0.68rem', ml: 0.5, '&:hover': { color: '#b84848' } }}>
+                    Remove
+                  </Button>
+                )}
+                <Typography sx={{ fontSize: '0.62rem', color: '#4a3f2e', display: 'block' }}>
+                  JPG, PNG, WEBP
+                </Typography>
+              </Box>
+            </Box>
           </Grid>
           <Grid item xs={6} sm={3}>
             <FormControl {...fs}>
@@ -511,6 +610,73 @@ export default function CharacterFormDialog({ open, onClose, onSaved, character 
                   multiline rows={2} sx={{ flex: 3 }} />
                 <IconButton size="small" onClick={() => removeAbility(i)}
                   sx={{ color: '#786c5c', '&:hover': { color: '#b84848' }, flexShrink: 0, mt: 0.5 }}>
+                  <DeleteIcon sx={{ fontSize: 16 }} />
+                </IconButton>
+              </Box>
+            </Grid>
+          ))}
+
+          <Grid item xs={12}><Divider sx={{ borderColor: 'rgba(120,108,92,0.2)' }} /></Grid>
+
+          {/* ── SPELLS ── */}
+          <Grid item xs={12}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: -0.5 }}>
+              <SectionLabel>Spells</SectionLabel>
+              <Button size="small" startIcon={<AddIcon sx={{ fontSize: 14 }} />} onClick={addSpell}
+                sx={{ color: '#62a870', fontSize: '0.72rem', mb: 1, minWidth: 0 }}>
+                Add
+              </Button>
+            </Box>
+          </Grid>
+          {spells.length === 0 && (
+            <Grid item xs={12}>
+              <Typography sx={{ fontSize: '0.75rem', color: '#4a3f2e', fontStyle: 'italic' }}>No spells added.</Typography>
+            </Grid>
+          )}
+          {spells.map((sp, i) => (
+            <Grid item xs={12} key={i}>
+              <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'center', flexWrap: 'wrap' }}>
+                <TextField size="small" label="Spell Name" value={sp.name}
+                  onChange={(e) => updateSpell(i, 'name', e.target.value)} sx={{ flex: '2 1 120px' }} />
+                <TextField size="small" label="Lv" type="number" value={sp.level}
+                  onChange={(e) => updateSpell(i, 'level', e.target.value)}
+                  inputProps={{ min: 0, max: 9, style: { textAlign: 'center', fontFamily: '"JetBrains Mono"' } }}
+                  sx={{ flex: '0 0 52px' }} />
+                <TextField size="small" label="Damage" value={sp.damage}
+                  onChange={(e) => updateSpell(i, 'damage', e.target.value)}
+                  placeholder="8d6" sx={{ flex: '1 1 72px' }}
+                  inputProps={{ style: { fontFamily: '"JetBrains Mono"' } }} />
+                <TextField size="small" label="+Mod" value={sp.damageMod}
+                  onChange={(e) => updateSpell(i, 'damageMod', e.target.value)}
+                  placeholder="+3" sx={{ flex: '0 0 56px' }}
+                  inputProps={{ style: { fontFamily: '"JetBrains Mono"', textAlign: 'center' } }} />
+                <TextField size="small" label="Dmg Type" value={sp.damageType}
+                  onChange={(e) => updateSpell(i, 'damageType', e.target.value)}
+                  placeholder="fire" sx={{ flex: '1 1 72px' }} />
+                <FormControl size="small" sx={{ flex: '1 1 100px' }}>
+                  <InputLabel>Casting Time</InputLabel>
+                  <Select value={sp.castingTime} label="Casting Time"
+                    onChange={(e) => updateSpell(i, 'castingTime', e.target.value as string)}>
+                    {['Action','Bonus Action','Reaction','1 Minute','10 Minutes'].map((ct) => (
+                      <MenuItem key={ct} value={ct}>{ct}</MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+                <TextField size="small" label="Range" value={sp.range}
+                  onChange={(e) => updateSpell(i, 'range', e.target.value)}
+                  placeholder="60 ft." sx={{ flex: '1 1 72px' }} />
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}>
+                  <Typography onClick={() => updateSpell(i, 'concentration', !sp.concentration)}
+                    sx={{ fontSize: '0.65rem', cursor: 'pointer', border: `1px solid ${sp.concentration ? 'rgba(98,168,112,0.5)' : 'rgba(120,108,92,0.25)'}`, borderRadius: 0.5, px: 0.6, py: 0.3, color: sp.concentration ? '#62a870' : '#786c5c' }}>
+                    C
+                  </Typography>
+                  <Typography onClick={() => updateSpell(i, 'ritual', !sp.ritual)}
+                    sx={{ fontSize: '0.65rem', cursor: 'pointer', border: `1px solid ${sp.ritual ? 'rgba(200,164,74,0.5)' : 'rgba(120,108,92,0.25)'}`, borderRadius: 0.5, px: 0.6, py: 0.3, color: sp.ritual ? '#c8a44a' : '#786c5c' }}>
+                    R
+                  </Typography>
+                </Box>
+                <IconButton size="small" onClick={() => removeSpell(i)}
+                  sx={{ color: '#786c5c', '&:hover': { color: '#b84848' }, flexShrink: 0 }}>
                   <DeleteIcon sx={{ fontSize: 16 }} />
                 </IconButton>
               </Box>

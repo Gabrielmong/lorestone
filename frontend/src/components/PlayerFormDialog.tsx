@@ -15,6 +15,19 @@ export interface PlayerFormEquipItem {
   name: string; qty: string
 }
 
+export interface PlayerFormSpell {
+  name: string
+  level: string
+  school: string
+  castingTime: string
+  range: string
+  damage: string
+  damageMod: string
+  damageType: string
+  concentration: boolean
+  ritual: boolean
+}
+
 export interface PlayerFormValues {
   // Identity
   name: string; playerName: string; race: string; class: string
@@ -34,6 +47,7 @@ export interface PlayerFormValues {
   skills: Record<string, string>
   weapons: PlayerFormWeapon[]
   equipment: PlayerFormEquipItem[]
+  spells: PlayerFormSpell[]
   currencyCp: string; currencySp: string; currencyEp: string
   currencyGp: string; currencyPp: string
   // Narrative
@@ -49,7 +63,7 @@ export const BLANK_PLAYER_FORM: PlayerFormValues = {
   intelligence: '', wisdom: '', charisma: '',
   gender: '', age: '', height: '', weight: '', eyes: '', hair: '', skin: '',
   savingThrows: {}, skills: {},
-  weapons: [], equipment: [],
+  weapons: [], equipment: [], spells: [],
   currencyCp: '', currencySp: '', currencyEp: '', currencyGp: '', currencyPp: '',
   featuresTraits: '', actions: '', proficienciesAndLanguages: '',
 }
@@ -150,6 +164,15 @@ export default function PlayerFormDialog({ open, onClose, onSave, initial, title
 
   const removeEquip = (i: number) =>
     setV((p) => ({ ...p, equipment: p.equipment.filter((_, idx) => idx !== i) }))
+
+  const addSpell = () =>
+    setV((p) => ({ ...p, spells: [...p.spells, { name: '', level: '0', school: '', castingTime: 'Action', range: '', damage: '', damageMod: '', damageType: '', concentration: false, ritual: false }] }))
+
+  const updateSpell = (i: number, field: keyof PlayerFormSpell, val: string | boolean) =>
+    setV((p) => ({ ...p, spells: p.spells.map((s, idx) => idx === i ? { ...s, [field]: val } : s) }))
+
+  const removeSpell = (i: number) =>
+    setV((p) => ({ ...p, spells: p.spells.filter((_, idx) => idx !== i) }))
 
   const fs = { size: 'small' as const, fullWidth: true }
 
@@ -309,6 +332,73 @@ export default function PlayerFormDialog({ open, onClose, onSave, initial, title
           ))}
 
           <Grid item xs={12}><Divider sx={{ borderColor: 'rgba(120,108,92,0.2)' }} /></Grid>
+
+          <Grid item xs={12}><Divider sx={{ borderColor: 'rgba(120,108,92,0.2)' }} /></Grid>
+
+          {/* ── SPELLS ── */}
+          <Grid item xs={12}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: -0.5 }}>
+              <SectionLabel>Spells</SectionLabel>
+              <Button size="small" startIcon={<AddIcon sx={{ fontSize: 14 }} />} onClick={addSpell}
+                sx={{ color: '#62a870', fontSize: '0.72rem', mb: 1, minWidth: 0 }}>
+                Add
+              </Button>
+            </Box>
+          </Grid>
+          {v.spells.length === 0 && (
+            <Grid item xs={12}>
+              <Typography sx={{ fontSize: '0.75rem', color: '#4a3f2e', fontStyle: 'italic' }}>No spells added.</Typography>
+            </Grid>
+          )}
+          {v.spells.map((sp, i) => (
+            <Grid item xs={12} key={i}>
+              <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'center', flexWrap: 'wrap' }}>
+                <TextField size="small" label="Spell Name" value={sp.name}
+                  onChange={(e) => updateSpell(i, 'name', e.target.value)} sx={{ flex: '2 1 120px' }} />
+                <TextField size="small" label="Lv" type="number" value={sp.level}
+                  onChange={(e) => updateSpell(i, 'level', e.target.value)}
+                  inputProps={{ min: 0, max: 9, style: { textAlign: 'center', fontFamily: '"JetBrains Mono"' } }}
+                  sx={{ flex: '0 0 52px' }} />
+                <TextField size="small" label="Damage" value={sp.damage}
+                  onChange={(e) => updateSpell(i, 'damage', e.target.value)}
+                  placeholder="8d6" sx={{ flex: '1 1 72px' }}
+                  inputProps={{ style: { fontFamily: '"JetBrains Mono"' } }} />
+                <TextField size="small" label="+Mod" value={sp.damageMod}
+                  onChange={(e) => updateSpell(i, 'damageMod', e.target.value)}
+                  placeholder="+3" sx={{ flex: '0 0 56px' }}
+                  inputProps={{ style: { fontFamily: '"JetBrains Mono"', textAlign: 'center' } }} />
+                <TextField size="small" label="Dmg Type" value={sp.damageType}
+                  onChange={(e) => updateSpell(i, 'damageType', e.target.value)}
+                  placeholder="fire" sx={{ flex: '1 1 72px' }} />
+                <FormControl size="small" sx={{ flex: '1 1 100px' }}>
+                  <InputLabel>Casting Time</InputLabel>
+                  <Select value={sp.castingTime} label="Casting Time"
+                    onChange={(e) => updateSpell(i, 'castingTime', e.target.value)}>
+                    {['Action','Bonus Action','Reaction','1 Minute','10 Minutes'].map((ct) => (
+                      <MenuItem key={ct} value={ct}>{ct}</MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+                <TextField size="small" label="Range" value={sp.range}
+                  onChange={(e) => updateSpell(i, 'range', e.target.value)}
+                  placeholder="60 ft." sx={{ flex: '1 1 72px' }} />
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}>
+                  <Typography sx={{ fontSize: '0.65rem', cursor: 'pointer', border: `1px solid ${sp.concentration ? 'rgba(98,168,112,0.5)' : 'rgba(120,108,92,0.25)'}`, borderRadius: 0.5, px: 0.6, py: 0.3, color: sp.concentration ? '#62a870' : '#786c5c' }}
+                    onClick={() => updateSpell(i, 'concentration', !sp.concentration)}>
+                    C
+                  </Typography>
+                  <Typography sx={{ fontSize: '0.65rem', cursor: 'pointer', border: `1px solid ${sp.ritual ? 'rgba(200,164,74,0.5)' : 'rgba(120,108,92,0.25)'}`, borderRadius: 0.5, px: 0.6, py: 0.3, color: sp.ritual ? '#c8a44a' : '#786c5c' }}
+                    onClick={() => updateSpell(i, 'ritual', !sp.ritual)}>
+                    R
+                  </Typography>
+                </Box>
+                <IconButton size="small" onClick={() => removeSpell(i)}
+                  sx={{ color: '#786c5c', '&:hover': { color: '#b84848' }, flexShrink: 0 }}>
+                  <DeleteIcon sx={{ fontSize: 16 }} />
+                </IconButton>
+              </Box>
+            </Grid>
+          ))}
 
           {/* ── EQUIPMENT ── */}
           <Grid item xs={12}>

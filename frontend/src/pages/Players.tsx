@@ -21,10 +21,10 @@ import CasinoIcon from '@mui/icons-material/Casino'
 import { useCampaign } from '../context/campaign'
 import { useDiceStore } from '../store/dice'
 import { parseCharacterSheet } from '../utils/parseCharacterSheet'
-import type { ParsedCharacterSheet } from '../utils/parseCharacterSheet'
+import type { ParsedCharacterSheet, ParsedSpell } from '../utils/parseCharacterSheet'
 import { parseDndBeyondCharacterId, fetchDdbSheet } from '../utils/ddbSync'
 import PlayerFormDialog from '../components/PlayerFormDialog'
-import type { PlayerFormValues, PlayerFormWeapon, PlayerFormEquipItem } from '../components/PlayerFormDialog'
+import type { PlayerFormValues, PlayerFormWeapon, PlayerFormEquipItem, PlayerFormSpell } from '../components/PlayerFormDialog'
 
 const PLAYERS = gql`
   query Players($campaignId: ID!) {
@@ -174,6 +174,21 @@ function formToInput(v: PlayerFormValues, importType: ImportType) {
   const featuresTraits = v.featuresTraits ? v.featuresTraits.split('\n\n').filter(Boolean) : undefined
   const actions = v.actions ? v.actions.split('\n\n').filter(Boolean) : undefined
 
+  const spells = (v.spells ?? [])
+    .filter((sp: PlayerFormSpell) => sp.name.trim())
+    .map((sp: PlayerFormSpell) => ({
+      name: sp.name,
+      level: parseInt(sp.level) || 0,
+      school: sp.school || undefined,
+      castingTime: sp.castingTime || undefined,
+      range: sp.range || undefined,
+      damage: sp.damage || undefined,
+      damageMod: sp.damageMod ? (parseInt(sp.damageMod) || 0) : undefined,
+      damageType: sp.damageType || undefined,
+      concentration: sp.concentration || undefined,
+      ritual: sp.ritual || undefined,
+    }))
+
   const extra: SheetExtra = {
     importType,
     name: v.name || undefined,
@@ -206,6 +221,7 @@ function formToInput(v: PlayerFormValues, importType: ImportType) {
     skills: Object.keys(skills).length ? skills : undefined,
     featuresTraits,
     actions,
+    spells: spells.length ? spells : undefined,
     ...scores,
     strengthMod: scores.strength ? modStr(scores.strength) : undefined,
     dexterityMod: scores.dexterity ? modStr(scores.dexterity) : undefined,
@@ -770,6 +786,65 @@ export default function Players() {
                 </SheetSection>
               )}
 
+              {sheet.spells && sheet.spells.length > 0 && (() => {
+                const byLevel = (sheet.spells as ParsedSpell[]).reduce<Record<number, ParsedSpell[]>>((acc, sp) => {
+                  ;(acc[sp.level] ??= []).push(sp)
+                  return acc
+                }, {})
+                const slotsInfo = sheet.spellSlots
+                return (
+                  <SheetSection title={`Spells (${sheet.spells.length})`}>
+                    {/* Spell stats row */}
+                    <Box sx={{ display: 'flex', gap: 1, mb: 1.5, flexWrap: 'wrap' }}>
+                      {sheet.spellAttackBonus && (
+                        <Tooltip title="Roll spell attack">
+                          <Box onClick={() => { const mod = parseInt(sheet.spellAttackBonus!); triggerRoll('1d20', `${selectedPlayer!.name} — Spell Attack`, isNaN(mod) ? 0 : mod) }}
+                            sx={{ px: 1.25, py: 0.5, bgcolor: '#111009', borderRadius: 1, border: '1px solid rgba(120,108,92,0.2)', cursor: 'pointer', '&:hover': { borderColor: 'rgba(200,164,74,0.4)' } }}>
+                            <Typography sx={{ fontSize: '0.58rem', color: '#786c5c', fontFamily: '"JetBrains Mono"', textTransform: 'uppercase' }}>Spell Atk</Typography>
+                            <Typography sx={{ fontSize: '0.9rem', color: '#c8a44a', fontWeight: 700, fontFamily: '"JetBrains Mono"' }}>{sheet.spellAttackBonus}</Typography>
+                          </Box>
+                        </Tooltip>
+                      )}
+                      {slotsInfo && Object.entries(slotsInfo).sort(([a], [b]) => Number(a) - Number(b)).map(([lvl, count]) => (
+                        <Box key={lvl} sx={{ px: 1.25, py: 0.5, bgcolor: '#111009', borderRadius: 1, border: '1px solid rgba(120,108,92,0.2)' }}>
+                          <Typography sx={{ fontSize: '0.58rem', color: '#786c5c', fontFamily: '"JetBrains Mono"', textTransform: 'uppercase' }}>Lv {lvl} slots</Typography>
+                          <Typography sx={{ fontSize: '0.9rem', color: '#b4a48a', fontWeight: 700, fontFamily: '"JetBrains Mono"' }}>{count}</Typography>
+                        </Box>
+                      ))}
+                    </Box>
+                    {/* Spells by level */}
+                    {Object.entries(byLevel).sort(([a], [b]) => Number(a) - Number(b)).map(([lvl, spells]) => (
+                      <Box key={lvl} sx={{ mb: 1 }}>
+                        <Typography sx={{ fontSize: '0.62rem', color: '#786c5c', textTransform: 'uppercase', letterSpacing: 0.7, fontFamily: '"JetBrains Mono"', mb: 0.5 }}>
+                          {lvl === '0' ? 'Cantrips' : `Level ${lvl}`}
+                        </Typography>
+                        <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                          {spells.map((sp, i) => (
+                            <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 0.4, px: 0.75, py: 0.3, borderRadius: 1, bgcolor: '#0b0906', border: `1px solid ${sp.concentration ? 'rgba(98,168,112,0.25)' : 'rgba(120,108,92,0.18)'}` }}>
+                              <Tooltip title={[sp.school, sp.castingTime, sp.range, sp.damageType, sp.concentration ? 'Concentration' : null, sp.ritual ? 'Ritual' : null].filter(Boolean).join(' · ') || sp.name}>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.3, cursor: 'default' }}>
+                                  <Typography component="span" sx={{ fontSize: '0.72rem', color: '#b4a48a' }}>{sp.name}</Typography>
+                                  {sp.concentration && <Typography component="span" sx={{ fontSize: '0.6rem', color: '#62a870' }}>©</Typography>}
+                                  {sp.ritual && <Typography component="span" sx={{ fontSize: '0.6rem', color: '#786c5c' }}>R</Typography>}
+                                </Box>
+                              </Tooltip>
+                              {sp.damage && (
+                                <Tooltip title={`Roll ${sp.name} (${sp.damage}${sp.damageType ? ' ' + sp.damageType : ''})`}>
+                                  <Box onClick={() => { const [n, d] = sp.damage!.match(/(\d+)d(\d+)/)?.slice(1) ?? []; if (n && d) triggerRoll(`${n}d${d}`, `${selectedPlayer!.name} — ${sp.name}`, (sp as any).damageMod ?? 0) }}
+                                    sx={{ px: 0.5, py: 0.1, borderRadius: 0.5, cursor: 'pointer', border: '1px solid rgba(184,72,72,0.3)', fontSize: '0.6rem', color: '#b84848', fontFamily: '"JetBrains Mono"', '&:hover': { bgcolor: 'rgba(184,72,72,0.1)' } }}>
+                                    {sp.damage}
+                                  </Box>
+                                </Tooltip>
+                              )}
+                            </Box>
+                          ))}
+                        </Box>
+                      </Box>
+                    ))}
+                  </SheetSection>
+                )
+              })()}
+
               {sheet.proficienciesAndLanguages && (
                 <SheetSection title="Proficiencies & Languages">
                   <Typography sx={{ fontSize: '0.75rem', color: '#b4a48a', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>
@@ -899,6 +974,18 @@ export default function Players() {
             featuresTraits: s.featuresTraits?.join('\n\n') ?? '',
             actions: s.actions?.join('\n\n') ?? '',
             proficienciesAndLanguages: s.proficienciesAndLanguages ?? '',
+            spells: s.spells ? s.spells.map((sp: any) => ({
+              name: sp.name ?? '',
+              level: sp.level != null ? String(sp.level) : '0',
+              school: sp.school ?? '',
+              castingTime: sp.castingTime ?? 'Action',
+              range: sp.range ?? '',
+              damage: sp.damage ?? '',
+              damageMod: sp.damageMod != null ? String(sp.damageMod) : '',
+              damageType: sp.damageType ?? '',
+              concentration: sp.concentration ?? false,
+              ritual: sp.ritual ?? false,
+            })) : [],
           }
         })() : undefined}
       />
