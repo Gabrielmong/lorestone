@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useQuery, useMutation, gql } from '@apollo/client'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
@@ -13,18 +13,21 @@ import CheckIcon from '@mui/icons-material/Check'
 import CloseIcon from '@mui/icons-material/Close'
 import LockIcon from '@mui/icons-material/Lock'
 import PersonIcon from '@mui/icons-material/Person'
+import PhotoCameraIcon from '@mui/icons-material/PhotoCamera'
 import { useAuthStore } from '../store/auth'
+
+const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:4000'
 
 const ME = gql`
   query MeProfile {
-    me { id email name dateOfBirth createdAt }
+    me { id email name dateOfBirth avatarUrl createdAt }
   }
 `
 
 const UPDATE_PROFILE = gql`
-  mutation UpdateProfile($name: String, $dateOfBirth: Date) {
-    updateProfile(name: $name, dateOfBirth: $dateOfBirth) {
-      id name dateOfBirth
+  mutation UpdateProfile($name: String, $dateOfBirth: Date, $avatarUrl: String) {
+    updateProfile(name: $name, dateOfBirth: $dateOfBirth, avatarUrl: $avatarUrl) {
+      id name dateOfBirth avatarUrl
     }
   }
 `
@@ -116,6 +119,9 @@ export default function Profile() {
   const [updateProfile, { loading: saving }] = useMutation(UPDATE_PROFILE)
   const [changePassword, { loading: changingPw }] = useMutation(CHANGE_PASSWORD)
 
+  const avatarInputRef = useRef<HTMLInputElement>(null)
+  const [avatarUploading, setAvatarUploading] = useState(false)
+
   // Profile editing state
   const [editingField, setEditingField] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
@@ -175,6 +181,19 @@ export default function Profile() {
     }
   }
 
+  const handleAvatarUpload = async (file: File) => {
+    setAvatarUploading(true)
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      const res = await fetch(`${API_BASE}/api/upload/image?folder=avatars`, { method: 'POST', body: form })
+      if (!res.ok) throw new Error('Upload failed')
+      const { url } = await res.json()
+      await updateProfile({ variables: { avatarUrl: url } })
+      refetch()
+    } catch { /* silent */ } finally { setAvatarUploading(false) }
+  }
+
   const dobDisplay = me?.dateOfBirth ? new Date(me.dateOfBirth).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' }) : ''
   const memberSince = me?.createdAt ? new Date(me.createdAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long' }) : ''
 
@@ -207,10 +226,50 @@ export default function Profile() {
               elevation={0}
               sx={{ p: 3, mb: 2.5, bgcolor: '#111009', border: '1px solid rgba(120,108,92,0.25)', borderRadius: 2 }}
             >
+              <input ref={avatarInputRef} type="file" accept="image/*" style={{ display: 'none' }}
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) handleAvatarUpload(f); e.target.value = '' }}
+              />
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2.5 }}>
-                <Box sx={{ width: 40, height: 40, borderRadius: '50%', bgcolor: '#1a160f', border: '1px solid rgba(200,164,74,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <PersonIcon sx={{ color: '#c8a44a', fontSize: 20 }} />
-                </Box>
+                {/* Clickable avatar */}
+                <Tooltip title="Change photo">
+                  <Box
+                    onClick={() => avatarInputRef.current?.click()}
+                    sx={{
+                      width: 56, height: 56, borderRadius: '50%', flexShrink: 0,
+                      bgcolor: '#1a160f', border: '1px solid rgba(200,164,74,0.3)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      cursor: 'pointer', overflow: 'hidden', position: 'relative',
+                      '&:hover .avatar-overlay': { opacity: 1 },
+                    }}
+                  >
+                    {avatarUploading ? (
+                      <CircularProgress size={20} sx={{ color: '#c8a44a' }} />
+                    ) : me?.avatarUrl ? (
+                      <>
+                        <Box component="img" src={me.avatarUrl} alt=""
+                          sx={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        <Box className="avatar-overlay" sx={{
+                          position: 'absolute', inset: 0, bgcolor: 'rgba(0,0,0,0.55)',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          opacity: 0, transition: 'opacity 0.15s',
+                        }}>
+                          <PhotoCameraIcon sx={{ fontSize: 18, color: '#e6d8c0' }} />
+                        </Box>
+                      </>
+                    ) : (
+                      <>
+                        <PersonIcon sx={{ color: '#c8a44a', fontSize: 24 }} />
+                        <Box className="avatar-overlay" sx={{
+                          position: 'absolute', inset: 0, bgcolor: 'rgba(0,0,0,0.55)',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          opacity: 0, transition: 'opacity 0.15s',
+                        }}>
+                          <PhotoCameraIcon sx={{ fontSize: 18, color: '#e6d8c0' }} />
+                        </Box>
+                      </>
+                    )}
+                  </Box>
+                </Tooltip>
                 <Box>
                   <Typography variant="h6" sx={{ fontFamily: '"Cinzel", serif', color: '#e6d8c0', fontSize: '1rem' }}>
                     Profile

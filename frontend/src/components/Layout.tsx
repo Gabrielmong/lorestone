@@ -44,6 +44,10 @@ const MY_DICE_SETS = gql`
   query MyDiceSetsLayout { myDiceSets { id name colorset customBg customFg material surface texture } }
 `
 
+const ME_AVATAR = gql`
+  query MeAvatar { me { id avatarUrl } }
+`
+
 const DRAWER_WIDTH = 220
 
 const navItems = [
@@ -64,6 +68,8 @@ function DrawerContent({ onNavigate, hasAppBar }: { onNavigate?: () => void; has
   const { user, logout } = useAuthStore()
   const { campaignName } = useCampaign()
   const navigate = useNavigate()
+  const { data: meData } = useQuery(ME_AVATAR, { fetchPolicy: 'cache-first' })
+  const avatarUrl: string | null = meData?.me?.avatarUrl ?? null
 
   const handleLogout = () => {
     logout()
@@ -122,10 +128,18 @@ function DrawerContent({ onNavigate, hasAppBar }: { onNavigate?: () => void; has
       </List>
 
       {/* Bottom */}
-      <Box sx={{ p: 1.5, borderTop: '1px solid rgba(120,108,92,0.3)' }}>
+      <Box sx={{ p: 1.5, borderTop: '1px solid rgba(120,108,92,0.3)', display: 'flex', alignItems: 'center', gap: 0.5 }}>
         <Tooltip title="Profile">
-          <IconButton onClick={() => { navigate('/profile'); onNavigate?.() }} size="small" sx={{ color: '#786c5c', '&:hover': { color: '#c8a44a' } }}>
-            <AccountCircle fontSize="small" />
+          <IconButton onClick={() => { navigate('/profile'); onNavigate?.() }} size="small"
+            sx={{ p: 0.25, '&:hover': { bgcolor: 'transparent' } }}>
+            {avatarUrl ? (
+              <Box component="img" src={avatarUrl} alt=""
+                sx={{ width: 28, height: 28, borderRadius: '50%', objectFit: 'cover', border: '1px solid rgba(200,164,74,0.35)', display: 'block' }} />
+            ) : (
+              <Box sx={{ width: 28, height: 28, borderRadius: '50%', bgcolor: '#1a160f', border: '1px solid rgba(120,108,92,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <AccountCircle sx={{ fontSize: 18, color: '#786c5c' }} />
+              </Box>
+            )}
           </IconButton>
         </Tooltip>
         <Tooltip title="Logout">
@@ -133,7 +147,7 @@ function DrawerContent({ onNavigate, hasAppBar }: { onNavigate?: () => void; has
             <LogoutIcon fontSize="small" />
           </IconButton>
         </Tooltip>
-        <Typography variant="caption" sx={{ color: '#786c5c', fontSize: '0.68rem', ml: 1 }}>
+        <Typography variant="caption" sx={{ color: '#786c5c', fontSize: '0.68rem', ml: 0.5 }}>
           v{version}
         </Typography>
       </Box>

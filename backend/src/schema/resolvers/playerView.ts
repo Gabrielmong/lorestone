@@ -30,7 +30,10 @@ function mapDecision(d: {
 export const playerViewResolvers = {
   Query: {
     playerView: async (_: unknown, args: { shareToken: string }, ctx: Context) => {
-      const campaign = await ctx.prisma.campaign.findUnique({ where: { shareToken: args.shareToken } })
+      const campaign = await ctx.prisma.campaign.findUnique({
+        where: { shareToken: args.shareToken },
+        include: { user: { select: { name: true } } },
+      })
       if (!campaign) throw new Error('Campaign not found or link is invalid')
 
       const [sessions, items, factions, characters, resolvedDecisions, allChapters] = await Promise.all([
@@ -90,6 +93,7 @@ export const playerViewResolvers = {
           name: campaign.name,
           system: campaign.system,
           yearInGame: campaign.yearInGame,
+          dmName: campaign.user?.name ?? null,
         },
         sessions: sessions.map((s) => ({
           sessionNumber: s.sessionNumber,
@@ -113,6 +117,7 @@ export const playerViewResolvers = {
           description: c.description,
           status: c.status.toUpperCase(),
           role: c.role.toUpperCase(),
+          portraitUrl: c.portraitUrl ?? null,
         })),
         stats: await computeCampaignStats(campaign.id, ctx),
         resolvedDecisions: resolvedDecisions.map((d) => mapDecision(d)),

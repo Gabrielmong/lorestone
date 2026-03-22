@@ -9,6 +9,7 @@ const extensions = `
     email: String!
     name: String!
     dateOfBirth: Date
+    avatarUrl: String
     campaigns: [Campaign!]!
     createdAt: DateTime!
   }
@@ -50,6 +51,7 @@ const extensions = `
     name: String!
     system: String
     yearInGame: String
+    dmName: String
   }
 
   type PlayerSession {
@@ -77,6 +79,7 @@ const extensions = `
     description: String
     status: String!
     role: String!
+    portraitUrl: String
   }
 
   type PlayerDecision {
@@ -210,7 +213,7 @@ const extensions = `
   extend type Mutation {
     register(email: String!, password: String!, name: String!): AuthPayload!
     login(email: String!, password: String!): AuthPayload!
-    updateProfile(name: String, dateOfBirth: Date): User!
+    updateProfile(name: String, dateOfBirth: Date, avatarUrl: String): User!
     changePassword(currentPassword: String!, newPassword: String!): Boolean!
 
     # Full updates

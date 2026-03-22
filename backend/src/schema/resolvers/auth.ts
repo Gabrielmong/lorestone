@@ -34,13 +34,14 @@ export const authResolvers = {
       return { token: signToken(user.id), user }
     },
 
-    updateProfile: async (_: unknown, args: { name?: string; dateOfBirth?: string }, ctx: Context) => {
+    updateProfile: async (_: unknown, args: { name?: string; dateOfBirth?: string; avatarUrl?: string }, ctx: Context) => {
       if (!ctx.user) throw new GraphQLError('Not authenticated', { extensions: { code: 'UNAUTHENTICATED' } })
       return ctx.prisma.user.update({
         where: { id: ctx.user.id },
         data: {
           ...(args.name !== undefined && { name: args.name }),
           ...(args.dateOfBirth !== undefined && { dateOfBirth: args.dateOfBirth ? new Date(args.dateOfBirth) : null }),
+          ...(args.avatarUrl !== undefined && { avatarUrl: args.avatarUrl || null }),
         },
       })
     },

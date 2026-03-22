@@ -13,6 +13,7 @@ model User {
   passwordHash String     @map("password_hash")
   name         String
   dateOfBirth  DateTime?  @map("date_of_birth") @db.Date
+  avatarUrl    String?    @map("avatar_url")
   campaigns    Campaign[]
   diceSets     DiceSet[]
   createdAt    DateTime   @default(now()) @map("created_at")

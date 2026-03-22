@@ -28,11 +28,11 @@ import DiceFab from '../components/DiceFab'
 const PLAYER_VIEW = gql`
   query PlayerView($shareToken: String!) {
     playerView(shareToken: $shareToken) {
-      campaign { name system yearInGame }
+      campaign { name system yearInGame dmName }
       sessions { sessionNumber title playedAt playerSummary }
       items { name description type }
       factions { name reputation repMin repMax }
-      characters { name description status role }
+      characters { name description status role portraitUrl }
       stats {
         totalPlayMinutes sessionsPlayed totalEncounters encountersWon
         npcsMet decisionsResolved enemiesKilled itemsCollected
@@ -87,7 +87,7 @@ export default function PlayerView() {
   if (!view) return null
 
   const { campaign, sessions, items, factions, resolvedDecisions, missedDecisions, encounters, stats, chapterLanes } = view
-  const characters = (view.characters as Array<{ name: string; description?: string | null; status: string; role: string }>)
+  const characters = (view.characters as Array<{ name: string; description?: string | null; status: string; role: string; portraitUrl?: string | null }>)
     .filter((c) => c.role !== 'MONSTER')
 
   return (
@@ -96,6 +96,11 @@ export default function PlayerView() {
         {/* Header */}
         <Box sx={{ textAlign: 'center', mb: 5 }}>
           <Typography variant="h2" sx={{ mb: 0.5 }}>{campaign.name}</Typography>
+          {campaign.dmName && (
+            <Typography sx={{ fontSize: '0.82rem', color: '#786c5c', mb: 0.75, fontFamily: '"JetBrains Mono"' }}>
+              Dungeon Master: <Typography component="span" sx={{ color: '#b4a48a', fontFamily: '"JetBrains Mono"' }}>{campaign.dmName}</Typography>
+            </Typography>
+          )}
           <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center', flexWrap: 'wrap' }}>
             {campaign.system && <Chip label={campaign.system} size="small" sx={{ bgcolor: '#1a160f', color: '#b4a48a' }} />}
             {campaign.yearInGame && <Chip label={campaign.yearInGame} size="small" sx={{ bgcolor: '#1a160f', color: '#786c5c', fontFamily: '"JetBrains Mono"' }} />}
@@ -159,20 +164,26 @@ export default function PlayerView() {
             <Grid item xs={12} md={6}>
               <Typography variant="h5" sx={{ mb: 2 }}>Characters Encountered</Typography>
               <Grid container spacing={1}>
-                {characters.map((c: { name: string; description?: string | null; status: string; role: string }) => (
+                {characters.map((c) => (
                   <Grid item xs={12} key={c.name}>
-                    <Box sx={{ p: 1.5, bgcolor: '#111009', borderRadius: 1, border: '1px solid rgba(120,108,92,0.2)' }}>
-                      <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'center', mb: c.description ? 0.5 : 0 }}>
-                        <Typography sx={{ fontFamily: '"Cinzel", serif', fontSize: '0.9rem', color: '#e6d8c0' }}>
-                          {c.name}
-                        </Typography>
-                        <StatusBadge status={c.status} />
-                      </Box>
-                      {c.description && (
-                        <Typography variant="caption" sx={{ color: '#786c5c', fontSize: '0.78rem' }}>
-                          {c.description.length > 120 ? c.description.slice(0, 117) + '…' : c.description}
-                        </Typography>
+                    <Box sx={{ p: 1.5, bgcolor: '#111009', borderRadius: 1, border: '1px solid rgba(120,108,92,0.2)', display: 'flex', gap: 1.5, alignItems: 'center' }}>
+                      {c.portraitUrl && (
+                        <Box component="img" src={c.portraitUrl} alt={c.name}
+                          sx={{ width: 44, height: 44, borderRadius: 1, objectFit: 'cover', objectPosition: 'top', flexShrink: 0, border: '1px solid rgba(120,108,92,0.25)' }} />
                       )}
+                      <Box sx={{ flex: 1, minWidth: 0 }}>
+                        <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'center', mb: c.description ? 0.35 : 0, flexWrap: 'wrap' }}>
+                          <Typography sx={{ fontFamily: '"Cinzel", serif', fontSize: '0.9rem', color: '#e6d8c0' }}>
+                            {c.name}
+                          </Typography>
+                          <StatusBadge status={c.status} />
+                        </Box>
+                        {c.description && (
+                          <Typography variant="caption" sx={{ color: '#786c5c', fontSize: '0.78rem' }}>
+                            {c.description.length > 120 ? c.description.slice(0, 117) + '…' : c.description}
+                          </Typography>
+                        )}
+                      </Box>
                     </Box>
                   </Grid>
                 ))}

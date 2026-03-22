@@ -20,7 +20,7 @@ import ConfirmDeleteDialog from '../components/ConfirmDeleteDialog'
 const MY_CAMPAIGNS = gql`
   query MyCampaigns {
     me {
-      id name
+      id name avatarUrl
       campaigns {
         id name system yearInGame playerCount description
         activeChapter { name }
@@ -106,8 +106,14 @@ export default function CampaignsList() {
             New Campaign
           </Button>
           <Tooltip title="Profile">
-            <IconButton onClick={() => navigate('/profile')} size="small" sx={{ color: '#786c5c', border: '1px solid rgba(120,108,92,0.3)', borderRadius: 1 }}>
-              <AccountCircleIcon fontSize="small" />
+            <IconButton onClick={() => navigate('/profile')} size="small"
+              sx={{ p: 0.25, border: '1px solid rgba(120,108,92,0.3)', borderRadius: 1, '&:hover': { borderColor: 'rgba(200,164,74,0.4)' } }}>
+              {data?.me?.avatarUrl ? (
+                <Box component="img" src={data.me.avatarUrl} alt=""
+                  sx={{ width: 26, height: 26, borderRadius: 0.5, objectFit: 'cover', display: 'block' }} />
+              ) : (
+                <AccountCircleIcon fontSize="small" sx={{ color: '#786c5c', m: 0.25 }} />
+              )}
             </IconButton>
           </Tooltip>
           <Tooltip title="Logout">
