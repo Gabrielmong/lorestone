@@ -9,6 +9,7 @@ import {
   Popover, useTheme, useMediaQuery,
 } from '@mui/material'
 import { useCampaign } from '../context/campaign'
+import { useAuthStore } from '../store/auth'
 import { fetchDdbSheet, sheetToUpdateInput } from '../utils/ddbSync'
 import { useDiceStore } from '../store/dice'
 import CasinoIcon from '@mui/icons-material/Casino'
@@ -22,6 +23,9 @@ import EmojiEventsIcon from '@mui/icons-material/EmojiEvents'
 import LocalFireDepartmentIcon from '@mui/icons-material/LocalFireDepartment'
 import RemoveIcon from '@mui/icons-material/Remove'
 import GpsFixedIcon from '@mui/icons-material/GpsFixed'
+import PauseIcon from '@mui/icons-material/Pause'
+import PlayArrowIcon from '@mui/icons-material/PlayArrow'
+import EditNoteIcon from '@mui/icons-material/EditNote'
 
 const ENCOUNTER = gql`
   query EncounterActive($id: ID!) {
@@ -29,7 +33,7 @@ const ENCOUNTER = gql`
       id name description status round currentTurnIndex outcomeType outcome
       linkedDecision { id question }
       outcomeDecision { id question }
-      startedAt endedAt
+      startedAt endedAt elapsedSeconds
       participants {
         id name isPlayer initiative hpMax hpCurrent armorClass conditions isActive
         killedByName killedDescription notes
@@ -68,8 +72,19 @@ const UPDATE_CHARACTER_STATUS = gql`
 
 const END_ENCOUNTER = gql`
   mutation EndEncounter($id: ID!, $outcomeType: EncounterOutcome!, $outcome: String) {
-    endEncounter(id: $id, outcomeType: $outcomeType, outcome: $outcome) { id status outcomeType }
+    endEncounter(id: $id, outcomeType: $outcomeType, outcome: $outcome) { id status outcomeType elapsedSeconds }
   }
+`
+
+const PAUSE_ENCOUNTER = gql`
+  mutation PauseEncounter($id: ID!) { pauseEncounter(id: $id) { id status elapsedSeconds } }
+`
+const RESUME_ENCOUNTER = gql`
+  mutation ResumeEncounter($id: ID!) { resumeEncounter(id: $id) { id status startedAt } }
+`
+
+const LOG_ROLL = gql`
+  mutation LogRoll($input: LogRollInput!) { logRoll(input: $input) { id } }
 `
 
 const UPDATE_CHARACTER = gql`
@@ -168,6 +183,7 @@ export default function EncounterActive() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { campaignId } = useCampaign()
+  const { user } = useAuthStore()
   const theme = useTheme()
   const isMobile = useMediaQuery(theme.breakpoints.down('md'))
 
@@ -225,6 +241,10 @@ export default function EncounterActive() {
   const [addParticipant, { loading: addingP }] = useMutation(ADD_PARTICIPANT, { refetchQueries: ['EncounterActive'] })
   const [removeParticipant] = useMutation(REMOVE_PARTICIPANT, { refetchQueries: ['EncounterActive'] })
   const [updateCharacterStatus] = useMutation(UPDATE_CHARACTER_STATUS, { refetchQueries: ['Characters', 'Dashboard'] })
+  const [pauseEncounter] = useMutation(PAUSE_ENCOUNTER, { refetchQueries: ['EncounterActive'] })
+  const [resumeEncounter] = useMutation(RESUME_ENCOUNTER, { refetchQueries: ['EncounterActive'] })
+  const [logRoll] = useMutation(LOG_ROLL)
+
   const [endEncounter, { loading: ending }] = useMutation(END_ENCOUNTER, {
     refetchQueries: ['Encounters', 'EncountersForTree'],
     onCompleted: () => navigate('/encounters'),
@@ -305,6 +325,39 @@ export default function EncounterActive() {
   const [killedByName, setKilledByName] = useState('')
   const [killedDescription, setKilledDescription] = useState('')
 
+  // Manual roll log
+  const [rollLogOpen, setRollLogOpen] = useState(false)
+  const [rlCharacter, setRlCharacter] = useState('')
+  const [rlLabel, setRlLabel] = useState('')
+  const [rlDiceType, setRlDiceType] = useState('d20')
+  const [rlResult, setRlResult] = useState('')
+  const [rlModifier, setRlModifier] = useState('0')
+
+  const handleLogManualRoll = async () => {
+    const total = parseInt(rlResult)
+    if (!rlCharacter || isNaN(total)) return
+    const mod = parseInt(rlModifier) || 0
+    const base = total - mod
+    const critical = rlDiceType === 'd20' && base === 20 ? 'nat20' : rlDiceType === 'd20' && base === 1 ? 'nat1' : undefined
+    await logRoll({
+      variables: {
+        input: {
+          campaignId,
+          characterName: rlCharacter,
+          notation: `1${rlDiceType}${mod >= 0 ? '+' : ''}${mod}`,
+          diceType: rlDiceType,
+          individualRolls: [base],
+          modifier: mod,
+          total,
+          label: rlLabel || rlDiceType.toUpperCase(),
+          ...(critical && { critical }),
+        },
+      },
+    })
+    setRlResult('')
+    setRollLogOpen(false)
+  }
+
   if (loading) return <Box sx={{ display: 'flex', justifyContent: 'center', pt: 8 }}><CircularProgress sx={{ color: '#c8a44a' }} /></Box>
   if (error) return <Alert severity="error">{error.message}</Alert>
 
@@ -320,6 +373,10 @@ export default function EncounterActive() {
 
   const currentParticipant = activeParticipants[encounter.currentTurnIndex] ?? null
   const isCompleted = encounter.status === 'COMPLETED'
+  const isPaused = encounter.status === 'PAUSED'
+  const isActive = encounter.status === 'ACTIVE'
+  const isPending = encounter.status === 'PENDING'
+  const isInProgress = isActive || isPending  // can advance turns / pause
 
   const applyHpDelta = async (p: Participant, delta: number) => {
     const current = p.hpCurrent ?? p.hpMax ?? 0
@@ -733,9 +790,9 @@ export default function EncounterActive() {
             <LocalFireDepartmentIcon sx={{ fontSize: 18, color: '#b84848' }} />
             <Typography variant="h4" sx={{ color: '#e6d8c0', fontSize: { xs: '1.15rem', md: undefined } }}>{encounter.name}</Typography>
             {!isCompleted && (
-              <Box sx={{ px: 1.5, py: 0.5, borderRadius: 1, bgcolor: '#1a0909', border: '1px solid rgba(180,72,72,0.4)' }}>
-                <Typography sx={{ fontSize: '0.82rem', fontFamily: '"JetBrains Mono"', color: '#b84848' }}>
-                  Round {encounter.round}
+              <Box sx={{ px: 1.5, py: 0.5, borderRadius: 1, bgcolor: isPaused ? '#1a1500' : '#1a0909', border: `1px solid ${isPaused ? 'rgba(200,164,74,0.4)' : 'rgba(180,72,72,0.4)'}` }}>
+                <Typography sx={{ fontSize: '0.82rem', fontFamily: '"JetBrains Mono"', color: isPaused ? '#c8a44a' : '#b84848' }}>
+                  {isPaused ? '⏸ Paused' : `Round ${encounter.round}`}
                 </Typography>
               </Box>
             )}
@@ -755,17 +812,42 @@ export default function EncounterActive() {
         <Box sx={{ display: { xs: 'none', md: 'flex' }, gap: 1 }}>
           {!isCompleted && (
             <>
-              <Tooltip title="Previous turn">
-                <IconButton size="small" onClick={() => prevTurn({ variables: { id } })}
+              {!isPaused && (
+                <Tooltip title="Previous turn">
+                  <IconButton size="small" onClick={() => prevTurn({ variables: { id } })}
+                    sx={{ border: '1px solid rgba(120,108,92,0.3)', color: '#786c5c' }}>
+                    <SkipPreviousIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              )}
+              {!isPaused && (
+                <Button variant="contained" startIcon={<SkipNextIcon />}
+                  onClick={() => nextTurn({ variables: { id } })}
+                  sx={{ bgcolor: '#b84848', '&:hover': { bgcolor: '#d45f5f' } }}>
+                  Next Turn
+                </Button>
+              )}
+              {isInProgress && (
+                <Tooltip title="Pause encounter">
+                  <IconButton size="small" onClick={() => pauseEncounter({ variables: { id } })}
+                    sx={{ border: '1px solid rgba(120,108,92,0.3)', color: '#786c5c' }}>
+                    <PauseIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              )}
+              {isPaused && (
+                <Button variant="outlined" startIcon={<PlayArrowIcon />}
+                  onClick={() => resumeEncounter({ variables: { id } })}
+                  sx={{ borderColor: 'rgba(200,164,74,0.4)', color: '#c8a44a' }}>
+                  Resume
+                </Button>
+              )}
+              <Tooltip title="Log manual roll">
+                <IconButton size="small" onClick={() => setRollLogOpen(true)}
                   sx={{ border: '1px solid rgba(120,108,92,0.3)', color: '#786c5c' }}>
-                  <SkipPreviousIcon fontSize="small" />
+                  <EditNoteIcon fontSize="small" />
                 </IconButton>
               </Tooltip>
-              <Button variant="contained" startIcon={<SkipNextIcon />}
-                onClick={() => nextTurn({ variables: { id } })}
-                sx={{ bgcolor: '#b84848', '&:hover': { bgcolor: '#d45f5f' } }}>
-                Next Turn
-              </Button>
               <Button variant="outlined" startIcon={<PersonAddIcon />}
                 onClick={() => setAddOpen(true)}
                 sx={{ borderColor: 'rgba(120,108,92,0.4)', color: '#786c5c' }}>
@@ -789,17 +871,41 @@ export default function EncounterActive() {
           bgcolor: '#111009', borderTop: '1px solid rgba(120,108,92,0.3)',
           px: 1.5, py: 1, gap: 1, alignItems: 'center',
         }}>
-          <Tooltip title="Previous turn">
-            <IconButton size="small" onClick={() => prevTurn({ variables: { id } })}
+          {isInProgress && (
+            <Tooltip title="Previous turn">
+              <IconButton size="small" onClick={() => prevTurn({ variables: { id } })}
+                sx={{ border: '1px solid rgba(120,108,92,0.3)', color: '#786c5c', flexShrink: 0 }}>
+                <SkipPreviousIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          )}
+          {isInProgress ? (
+            <Button variant="contained" startIcon={<SkipNextIcon />}
+              onClick={() => nextTurn({ variables: { id } })}
+              sx={{ bgcolor: '#b84848', '&:hover': { bgcolor: '#d45f5f' }, flex: 1 }}>
+              Next
+            </Button>
+          ) : isPaused ? (
+            <Button variant="outlined" startIcon={<PlayArrowIcon />}
+              onClick={() => resumeEncounter({ variables: { id } })}
+              sx={{ borderColor: 'rgba(200,164,74,0.4)', color: '#c8a44a', flex: 1 }}>
+              Resume
+            </Button>
+          ) : null}
+          {isInProgress && (
+            <Tooltip title="Pause">
+              <IconButton size="small" onClick={() => pauseEncounter({ variables: { id } })}
+                sx={{ border: '1px solid rgba(120,108,92,0.3)', color: '#786c5c', flexShrink: 0 }}>
+                <PauseIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          )}
+          <Tooltip title="Log roll">
+            <IconButton size="small" onClick={() => setRollLogOpen(true)}
               sx={{ border: '1px solid rgba(120,108,92,0.3)', color: '#786c5c', flexShrink: 0 }}>
-              <SkipPreviousIcon fontSize="small" />
+              <EditNoteIcon fontSize="small" />
             </IconButton>
           </Tooltip>
-          <Button variant="contained" startIcon={<SkipNextIcon />}
-            onClick={() => nextTurn({ variables: { id } })}
-            sx={{ bgcolor: '#b84848', '&:hover': { bgcolor: '#d45f5f' }, flex: 1 }}>
-            Next
-          </Button>
           <Button variant="outlined" startIcon={<PersonAddIcon />}
             onClick={() => setAddOpen(true)}
             sx={{ borderColor: 'rgba(120,108,92,0.4)', color: '#786c5c', flex: 1 }}>
@@ -852,15 +958,15 @@ export default function EncounterActive() {
               <Typography sx={{ fontSize: '0.6rem', color: '#786c5c', textTransform: 'uppercase', letterSpacing: 0.5 }}>Combatants</Typography>
               <Typography sx={{ fontSize: '1rem', fontFamily: '"JetBrains Mono"', color: '#b4a48a', fontWeight: 700 }}>{encounter.participants.length}</Typography>
             </Box>
-            {encounter.startedAt && encounter.endedAt && (() => {
-              const ms = new Date(encounter.endedAt).getTime() - new Date(encounter.startedAt).getTime()
-              const mins = Math.floor(ms / 60000)
-              const secs = Math.floor((ms % 60000) / 1000)
+            {encounter.elapsedSeconds > 0 && (() => {
+              const secs = encounter.elapsedSeconds
+              const mins = Math.floor(secs / 60)
+              const s = secs % 60
               return (
                 <Box>
                   <Typography sx={{ fontSize: '0.6rem', color: '#786c5c', textTransform: 'uppercase', letterSpacing: 0.5 }}>Duration</Typography>
                   <Typography sx={{ fontSize: '1rem', fontFamily: '"JetBrains Mono"', color: '#b4a48a', fontWeight: 700 }}>
-                    {mins > 0 ? `${mins}m ${secs}s` : `${secs}s`}
+                    {mins > 0 ? `${mins}m ${s}s` : `${s}s`}
                   </Typography>
                 </Box>
               )
@@ -1195,6 +1301,58 @@ export default function EncounterActive() {
           </Box>
         )}
       </Popover>
+
+      {/* Manual Roll Log Dialog */}
+      <Dialog open={rollLogOpen} onClose={() => setRollLogOpen(false)} maxWidth="xs" fullWidth
+        PaperProps={{ sx: { bgcolor: '#0f0d0a' } }}>
+        <DialogTitle sx={{ color: '#e6d8c0', fontFamily: '"Cinzel", serif', fontSize: '0.95rem', pb: 0.5 }}>
+          Log Physical Roll
+        </DialogTitle>
+        <DialogContent>
+          <Grid container spacing={1.5} sx={{ mt: 0 }}>
+            <Grid item xs={12}>
+              <Autocomplete
+                freeSolo
+                options={[
+                  `${user?.name ?? 'DM'} (DM)`,
+                  ...encounter.participants.map((p: Participant) => p.name),
+                ]}
+                value={rlCharacter}
+                onInputChange={(_, v) => setRlCharacter(v)}
+                renderInput={(params) => <TextField {...params} label="Character / Player" size="small" />}
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField label="Label (e.g. Attack, Perception)" value={rlLabel}
+                onChange={(e) => setRlLabel(e.target.value)} fullWidth size="small" />
+            </Grid>
+            <Grid item xs={5}>
+              <FormControl size="small" fullWidth>
+                <InputLabel>Die</InputLabel>
+                <Select label="Die" value={rlDiceType} onChange={(e) => setRlDiceType(e.target.value)}>
+                  {['d4','d6','d8','d10','d12','d20','d100'].map((d) => (
+                    <MenuItem key={d} value={d}>{d}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={3.5}>
+              <TextField label="Modifier" type="number" value={rlModifier}
+                onChange={(e) => setRlModifier(e.target.value)} fullWidth size="small" />
+            </Grid>
+            <Grid item xs={3.5}>
+              <TextField label="Total" type="number" value={rlResult}
+                onChange={(e) => setRlResult(e.target.value)} fullWidth size="small" autoFocus />
+            </Grid>
+          </Grid>
+        </DialogContent>
+        <DialogActions sx={{ px: 2, pb: 2 }}>
+          <Button onClick={() => setRollLogOpen(false)} sx={{ color: '#786c5c' }}>Cancel</Button>
+          <Button onClick={handleLogManualRoll} variant="contained" size="small" disabled={!rlCharacter || !rlResult}>
+            Log Roll
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   )
 }

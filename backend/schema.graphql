@@ -94,6 +94,7 @@ enum MissionStatus {
 enum EncounterStatus {
   PENDING
   ACTIVE
+  PAUSED
   COMPLETED
 }
 
@@ -370,6 +371,8 @@ type Encounter {
   outcome: String
   startedAt: DateTime
   endedAt: DateTime
+  pausedAt: DateTime
+  elapsedSeconds: Int!
   createdAt: DateTime!
   updatedAt: DateTime!
 }
@@ -516,6 +519,8 @@ type Mutation {
   updateEncounter(id: ID!, input: UpdateEncounterInput!): Encounter!
   deleteEncounter(id: ID!): Boolean!
   startEncounter(id: ID!): Encounter!
+  pauseEncounter(id: ID!): Encounter!
+  resumeEncounter(id: ID!): Encounter!
   endEncounter(id: ID!, outcomeType: EncounterOutcome!, outcome: String): Encounter!
   addParticipant(encounterId: ID!, input: CreateParticipantInput!): EncounterParticipant!
   updateParticipant(id: ID!, input: UpdateParticipantInput!): EncounterParticipant!

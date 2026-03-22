@@ -41,16 +41,39 @@ export const encounterResolvers = {
         data: { status: 'active', startedAt: new Date(), round: 1, currentTurnIndex: 0 },
       }),
 
-    endEncounter: (_: unknown, args: { id: string; outcomeType: string; outcome?: string }, ctx: Context) =>
+    pauseEncounter: async (_: unknown, args: { id: string }, ctx: Context) => {
+      const enc = await ctx.prisma.encounter.findUnique({ where: { id: args.id } })
+      if (!enc || (enc.status !== 'active' && enc.status !== 'pending')) throw new Error('Encounter cannot be paused')
+      const now = new Date()
+      const additional = enc.startedAt ? Math.floor((now.getTime() - enc.startedAt.getTime()) / 1000) : 0
+      return ctx.prisma.encounter.update({
+        where: { id: args.id },
+        data: { status: 'paused', pausedAt: now, elapsedSeconds: enc.elapsedSeconds + additional, startedAt: null },
+      })
+    },
+
+    resumeEncounter: (_: unknown, args: { id: string }, ctx: Context) =>
       ctx.prisma.encounter.update({
+        where: { id: args.id },
+        data: { status: 'active', startedAt: new Date(), pausedAt: null },
+      }),
+
+    endEncounter: async (_: unknown, args: { id: string; outcomeType: string; outcome?: string }, ctx: Context) => {
+      const enc = await ctx.prisma.encounter.findUnique({ where: { id: args.id } })
+      if (!enc) throw new Error('Encounter not found')
+      const now = new Date()
+      const additional = enc.startedAt ? Math.floor((now.getTime() - enc.startedAt.getTime()) / 1000) : 0
+      return ctx.prisma.encounter.update({
         where: { id: args.id },
         data: {
           status: 'completed',
-          endedAt: new Date(),
+          endedAt: now,
+          elapsedSeconds: enc.elapsedSeconds + additional,
           outcomeType: args.outcomeType.toLowerCase(),
           outcome: args.outcome,
         },
-      }),
+      })
+    },
 
     addParticipant: (_: unknown, args: { encounterId: string; input: Record<string, unknown> }, ctx: Context) =>
       ctx.prisma.encounterParticipant.create({

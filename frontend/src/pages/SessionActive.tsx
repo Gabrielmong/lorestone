@@ -16,7 +16,10 @@ import SaveIcon from '@mui/icons-material/Save'
 import PauseIcon from '@mui/icons-material/Pause'
 import PlayArrowIcon from '@mui/icons-material/PlayArrow'
 import TimerIcon from '@mui/icons-material/Timer'
+import EditNoteIcon from '@mui/icons-material/EditNote'
 import { useSessionStore } from '../store/session'
+import { useDiceStore } from '../store/dice'
+import { useAuthStore } from '../store/auth'
 import HPTracker from '../components/HPTracker'
 import ConditionBadge from '../components/ConditionBadge'
 import StatusBadge from '../components/StatusBadge'
@@ -36,7 +39,7 @@ const SESSION = gql`
 const CAMPAIGN_CHARS = gql`
   query SessionChars($campaignId: ID!) {
     characters(campaignId: $campaignId) {
-      id name role status hpMax hpCurrent armorClass speed
+      id name role status hpMax hpCurrent armorClass speed stats extra
     }
   }
 `
@@ -69,6 +72,10 @@ const UPDATE_HP = gql`
   mutation UpdateHP($id: ID!, $hpCurrent: Int!) {
     updateCharacterHP(id: $id, hpCurrent: $hpCurrent) { id hpCurrent }
   }
+`
+
+const LOG_ROLL = gql`
+  mutation SessionLogRoll($input: LogRollInput!) { logRoll(input: $input) { id } }
 `
 
 const ALL_ROLES = ['player', 'npc', 'monster', 'ally', 'villain', 'neutral']
@@ -104,6 +111,8 @@ export default function SessionActive() {
   const _isMobile = useMediaQuery(theme.breakpoints.down('md'))
 
   const { characterStates, initCharacter, setHP } = useSessionStore()
+  const { setActiveSession, clearActiveSession } = useDiceStore()
+  const { user } = useAuthStore()
 
   const { data, loading, error, refetch } = useQuery(SESSION, { variables: { id }, skip: !id })
   const session = data?.session
@@ -114,9 +123,17 @@ export default function SessionActive() {
 
   const campaignId = session?.campaign?.id
 
+  // Track active session in dice store so DiceRoller can auto-log rolls
+  useEffect(() => {
+    if (isActive && id && campaignId) setActiveSession(id, campaignId)
+    else clearActiveSession()
+    return () => clearActiveSession()
+  }, [isActive, id, campaignId])
+
   const { data: charsData } = useQuery(CAMPAIGN_CHARS, {
     variables: { campaignId },
     skip: !campaignId,
+    fetchPolicy: 'network-only',
   })
 
   const [endSession] = useMutation(END_SESSION)
@@ -124,6 +141,15 @@ export default function SessionActive() {
   const [startSession] = useMutation(START_SESSION)
   const [addNote] = useMutation(ADD_NOTE)
   const [updateHP] = useMutation(UPDATE_HP)
+  const [logRollMutation] = useMutation(LOG_ROLL)
+
+  // Manual roll log
+  const [rollLogOpen, setRollLogOpen] = useState(false)
+  const [rlCharacter, setRlCharacter] = useState('')
+  const [rlLabel, setRlLabel] = useState('')
+  const [rlDiceType, setRlDiceType] = useState('d20')
+  const [rlResult, setRlResult] = useState('')
+  const [rlModifier, setRlModifier] = useState('0')
 
   // Tick — only when active, timer started, and not paused
   useEffect(() => {
@@ -211,6 +237,32 @@ export default function SessionActive() {
     navigate('/dashboard')
   }
 
+  const handleLogManualRoll = async () => {
+    const total = parseInt(rlResult)
+    if (!rlCharacter || isNaN(total) || !campaignId) return
+    const mod = parseInt(rlModifier) || 0
+    const base = total - mod
+    const critical = rlDiceType === 'd20' && base === 20 ? 'nat20' : rlDiceType === 'd20' && base === 1 ? 'nat1' : undefined
+    await logRollMutation({
+      variables: {
+        input: {
+          campaignId,
+          sessionId: id,
+          characterName: rlCharacter,
+          notation: `1${rlDiceType}${mod >= 0 ? '+' : ''}${mod}`,
+          diceType: rlDiceType,
+          individualRolls: [base],
+          modifier: mod,
+          total,
+          label: rlLabel || rlDiceType.toUpperCase(),
+          ...(critical && { critical }),
+        },
+      },
+    })
+    setRlResult('')
+    setRollLogOpen(false)
+  }
+
   if (loading) return <Box sx={{ display: 'flex', justifyContent: 'center', pt: 8 }}><CircularProgress sx={{ color: '#c8a44a' }} /></Box>
   if (error) return <Alert severity="error">{error.message}</Alert>
 
@@ -289,6 +341,10 @@ export default function SessionActive() {
               <Button variant="outlined" startIcon={<SaveIcon />} onClick={handleSaveHPs} size="small">
                 Save HP
               </Button>
+              <Button variant="outlined" startIcon={<EditNoteIcon />} onClick={() => setRollLogOpen(true)} size="small"
+                sx={{ borderColor: 'rgba(120,108,92,0.4)', color: '#786c5c' }}>
+                Log Roll
+              </Button>
               <Button variant="contained" color="error" startIcon={<StopIcon />} onClick={() => setEndDialogOpen(true)} size="small">
                 End Session
               </Button>
@@ -330,10 +386,31 @@ export default function SessionActive() {
 
           <Collapse in={!charsCollapsed}>
           <Grid container spacing={1.5}>
-            {filteredChars.map((c: { id: string; name: string; role: string; status: string; hpMax?: number | null; armorClass?: number | null; speed?: number | null }) => {
+            {filteredChars.map((c: { id: string; name: string; role: string; status: string; hpMax?: number | null; armorClass?: number | null; speed?: number | null; stats?: Record<string, number> | null; extra?: unknown }) => {
               const storeState = characterStates[c.id]
               const hpCurrent = storeState?.hpCurrent ?? 0
               const conditions = storeState?.conditions ?? []
+
+              const extra = c.extra
+                ? (typeof c.extra === 'string' ? JSON.parse(c.extra) : c.extra) as Record<string, unknown>
+                : null
+
+              const STAT_KEYS = [
+                { key: 'STR', label: 'STR' },
+                { key: 'DEX', label: 'DEX' },
+                { key: 'CON', label: 'CON' },
+                { key: 'INT', label: 'INT' },
+                { key: 'WIS', label: 'WIS' },
+                { key: 'CHA', label: 'CHA' },
+              ]
+              const hasStats = c.stats && Object.keys(c.stats).length > 0
+              const wisMod = c.stats?.WIS != null ? Math.floor((c.stats.WIS - 10) / 2) : null
+              const passivePerception = extra?.passivePerception != null
+                ? Number(extra.passivePerception)
+                : wisMod != null ? 10 + wisMod : null
+              const initiative = extra?.initiative != null
+                ? Number(extra.initiative)
+                : c.stats?.DEX != null ? Math.floor((c.stats.DEX - 10) / 2) : null
 
               return (
                 <Grid item xs={12} sm={6} key={c.id}>
@@ -364,7 +441,30 @@ export default function SessionActive() {
                         {c.speed && (
                           <Chip label={`${c.speed}ft`} size="small" sx={{ fontFamily: '"JetBrains Mono"', fontSize: '0.68rem', bgcolor: '#1a160f', color: '#786c5c', height: 18 }} />
                         )}
+                        {passivePerception != null && (
+                          <Chip label={`PP ${passivePerception}`} size="small" sx={{ fontFamily: '"JetBrains Mono"', fontSize: '0.68rem', bgcolor: '#1a1a0f', color: '#a89060', height: 18 }} />
+                        )}
+                        {initiative != null && (
+                          <Chip label={`Init ${initiative >= 0 ? '+' : ''}${initiative}`} size="small" sx={{ fontFamily: '"JetBrains Mono"', fontSize: '0.68rem', bgcolor: '#1a160f', color: '#786c5c', height: 18 }} />
+                        )}
                       </Box>
+
+                      {hasStats && (
+                        <Box sx={{ display: 'flex', gap: 0, mt: 0.5, mb: 0.5, border: '1px solid rgba(120,108,92,0.15)', borderRadius: 1, overflow: 'hidden' }}>
+                          {STAT_KEYS.map(({ key, label }) => {
+                            const score = c.stats?.[key] ?? 0
+                            const mod = Math.floor((score - 10) / 2)
+                            const modStr = mod >= 0 ? `+${mod}` : `${mod}`
+                            return (
+                              <Box key={key} sx={{ flex: 1, textAlign: 'center', py: 0.4, borderRight: '1px solid rgba(120,108,92,0.15)', '&:last-child': { borderRight: 'none' } }}>
+                                <Typography sx={{ fontSize: '0.55rem', color: '#786c5c', fontFamily: '"JetBrains Mono"', lineHeight: 1 }}>{label}</Typography>
+                                <Typography sx={{ fontSize: '0.75rem', color: '#c8a44a', fontFamily: '"JetBrains Mono"', fontWeight: 'bold', lineHeight: 1.3 }}>{modStr}</Typography>
+                                <Typography sx={{ fontSize: '0.55rem', color: '#5c5040', fontFamily: '"JetBrains Mono"', lineHeight: 1 }}>{score}</Typography>
+                              </Box>
+                            )
+                          })}
+                        </Box>
+                      )}
 
                       {conditions.length > 0 && (
                         <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
@@ -447,6 +547,56 @@ export default function SessionActive() {
           </List>
         </Grid>
       </Grid>
+
+      {/* Manual Roll Log Dialog */}
+      <Dialog open={rollLogOpen} onClose={() => setRollLogOpen(false)} maxWidth="xs" fullWidth
+        PaperProps={{ sx: { bgcolor: '#0f0d0a' } }}>
+        <DialogTitle sx={{ color: '#e6d8c0', fontFamily: '"Cinzel", serif', fontSize: '0.95rem', pb: 0.5 }}>
+          Log Physical Roll
+        </DialogTitle>
+        <DialogContent>
+          <Grid container spacing={1.5} sx={{ mt: 0 }}>
+            <Grid item xs={12}>
+              <Select
+                value={rlCharacter} onChange={(e) => setRlCharacter(e.target.value as string)}
+                displayEmpty size="small" fullWidth renderValue={(v) => v || 'Character / Player'}>
+                <MenuItem value={`${user?.name ?? 'DM'} (DM)`}>{user?.name ?? 'DM'} (DM)</MenuItem>
+                {(charsData?.characters ?? []).map((c: { id: string; name: string }) => (
+                  <MenuItem key={c.id} value={c.name}>{c.name}</MenuItem>
+                ))}
+              </Select>
+            </Grid>
+            <Grid item xs={12}>
+              <TextField label="Label (e.g. Perception Check)" value={rlLabel}
+                onChange={(e) => setRlLabel(e.target.value)} fullWidth size="small" />
+            </Grid>
+            <Grid item xs={5}>
+              <FormControl size="small" fullWidth>
+                <InputLabel>Die</InputLabel>
+                <Select label="Die" value={rlDiceType} onChange={(e) => setRlDiceType(e.target.value as string)}>
+                  {['d4','d6','d8','d10','d12','d20','d100'].map((d) => (
+                    <MenuItem key={d} value={d}>{d}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={3.5}>
+              <TextField label="Modifier" type="number" value={rlModifier}
+                onChange={(e) => setRlModifier(e.target.value)} fullWidth size="small" />
+            </Grid>
+            <Grid item xs={3.5}>
+              <TextField label="Total" type="number" value={rlResult}
+                onChange={(e) => setRlResult(e.target.value)} fullWidth size="small" autoFocus />
+            </Grid>
+          </Grid>
+        </DialogContent>
+        <DialogActions sx={{ px: 2, pb: 2 }}>
+          <Button onClick={() => setRollLogOpen(false)} sx={{ color: '#786c5c' }}>Cancel</Button>
+          <Button onClick={handleLogManualRoll} variant="contained" size="small" disabled={!rlCharacter || !rlResult}>
+            Log Roll
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* End session dialog */}
       <Dialog open={endDialogOpen} onClose={() => setEndDialogOpen(false)}

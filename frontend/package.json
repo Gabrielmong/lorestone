@@ -37,6 +37,7 @@
     "react-dom": "^18.3.0",
     "react-router-dom": "^6.26.0",
     "reactflow": "^11.11.4",
+    "recharts": "^3.8.0",
     "vite-plugin-static-copy": "^3.3.0",
     "zustand": "^5.0.0"
   },

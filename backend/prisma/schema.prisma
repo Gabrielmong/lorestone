@@ -40,28 +40,33 @@ model DiceSet {
 }
 
 model Campaign {
-  id            String      @id @default(uuid()) @db.Uuid
-  userId        String?     @map("user_id") @db.Uuid
-  user          User?       @relation(fields: [userId], references: [id])
-  shareToken    String      @unique @default(uuid()) @map("share_token") @db.Uuid
-  name          String
-  system        String?
-  description   String?
-  yearInGame    String?     @map("year_in_game")
-  playerCount   Int         @default(0) @map("player_count")
-  coverImageUrl String?     @map("cover_image_url")
-  settings      Json        @default("{}")
-  chapters      Chapter[]
-  characters    Character[]
-  factions      Faction[]
-  items         Item[]
-  decisions     Decision[]
-  sessions      Session[]
-  missions      Mission[]
-  encounters    Encounter[]
-  wikiPages     WikiPage[]
-  createdAt     DateTime    @default(now()) @map("created_at")
-  updatedAt     DateTime    @updatedAt @map("updated_at")
+  id                    String                @id @default(uuid()) @db.Uuid
+  userId                String?               @map("user_id") @db.Uuid
+  user                  User?                 @relation(fields: [userId], references: [id])
+  shareToken            String                @unique @default(uuid()) @map("share_token") @db.Uuid
+  name                  String
+  system                String?
+  description           String?
+  yearInGame            String?               @map("year_in_game")
+  playerCount           Int                   @default(0) @map("player_count")
+  coverImageUrl         String?               @map("cover_image_url")
+  settings              Json                  @default("{}")
+  chapters              Chapter[]
+  characters            Character[]
+  factions              Faction[]
+  items                 Item[]
+  decisions             Decision[]
+  sessions              Session[]
+  missions              Mission[]
+  encounters            Encounter[]
+  wikiPages             WikiPage[]
+  rollLogs              RollLog[]
+  factionRepSnapshots   FactionRepSnapshot[]
+  characterHPSnapshots  CharacterHPSnapshot[]
+  encounterStats        EncounterStat[]
+  sessionTreasures      SessionTreasure[]
+  createdAt             DateTime              @default(now()) @map("created_at")
+  updatedAt             DateTime              @updatedAt @map("updated_at")
 
   @@map("campaigns")
 }
@@ -115,13 +120,14 @@ model Character {
   portraitUrl         String?                  @map("portrait_url")
   tags                String[]                 @default([])
   extra               Json                     @default("{}")
-  heldItems           Item[]                   @relation("ItemHolder")
-  sessionStates       CharacterSessionState[]
-  decisionStates      CharacterDecisionState[]
+  heldItems             Item[]                   @relation("ItemHolder")
+  sessionStates         CharacterSessionState[]
+  decisionStates        CharacterDecisionState[]
   sessionEvents         SessionEvent[]
-  encounterParticipants EncounterParticipant[] @relation("CharacterEncounters")
-  createdAt             DateTime               @default(now()) @map("created_at")
-  updatedAt             DateTime               @updatedAt @map("updated_at")
+  encounterParticipants EncounterParticipant[]   @relation("CharacterEncounters")
+  hpSnapshots           CharacterHPSnapshot[]
+  createdAt             DateTime                 @default(now()) @map("created_at")
+  updatedAt             DateTime                 @updatedAt @map("updated_at")
 
   @@map("characters")
 }
@@ -155,6 +161,7 @@ model Faction {
   icon          String?
   extra         Json           @default("{}")
   sessionEvents SessionEvent[]
+  repSnapshots  FactionRepSnapshot[]
   createdAt     DateTime       @default(now()) @map("created_at")
   updatedAt     DateTime       @updatedAt @map("updated_at")
 
@@ -266,23 +273,27 @@ model CharacterDecisionState {
 }
 
 model Session {
-  id              String                  @id @default(uuid()) @db.Uuid
-  campaignId      String                  @map("campaign_id") @db.Uuid
-  campaign        Campaign                @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  chapterId       String?                 @map("chapter_id") @db.Uuid
-  chapter         Chapter?                @relation(fields: [chapterId], references: [id])
-  sessionNumber   Int                     @map("session_number")
-  title           String?
-  playedAt        DateTime?               @map("played_at")
-  startedAt       DateTime?               @map("started_at")
-  endedAt         DateTime?               @map("ended_at")
-  dmNotes         String?                 @map("dm_notes")
-  playerSummary   String?                 @map("player_summary")
-  status          String                  @default("planned")
-  events          SessionEvent[]
-  characterStates CharacterSessionState[]
-  createdAt       DateTime                @default(now()) @map("created_at")
-  updatedAt       DateTime                @updatedAt @map("updated_at")
+  id                   String                  @id @default(uuid()) @db.Uuid
+  campaignId           String                  @map("campaign_id") @db.Uuid
+  campaign             Campaign                @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  chapterId            String?                 @map("chapter_id") @db.Uuid
+  chapter              Chapter?                @relation(fields: [chapterId], references: [id])
+  sessionNumber        Int                     @map("session_number")
+  title                String?
+  playedAt             DateTime?               @map("played_at")
+  startedAt            DateTime?               @map("started_at")
+  endedAt              DateTime?               @map("ended_at")
+  dmNotes              String?                 @map("dm_notes")
+  playerSummary        String?                 @map("player_summary")
+  status               String                  @default("planned")
+  events               SessionEvent[]
+  characterStates      CharacterSessionState[]
+  rollLogs             RollLog[]
+  factionRepSnapshots  FactionRepSnapshot[]
+  characterHPSnapshots CharacterHPSnapshot[]
+  treasure             SessionTreasure?
+  createdAt            DateTime                @default(now()) @map("created_at")
+  updatedAt            DateTime                @updatedAt @map("updated_at")
 
   @@map("sessions")
 }
@@ -360,7 +371,10 @@ model Encounter {
   outcome            String?
   startedAt          DateTime?              @map("started_at")
   endedAt            DateTime?              @map("ended_at")
+  pausedAt           DateTime?              @map("paused_at")
+  elapsedSeconds     Int                    @default(0) @map("elapsed_seconds")
   participants       EncounterParticipant[]
+  stat               EncounterStat?
   createdAt          DateTime               @default(now()) @map("created_at")
   updatedAt          DateTime               @updatedAt @map("updated_at")
 
@@ -405,4 +419,88 @@ model WikiPage {
   updatedAt  DateTime   @updatedAt @map("updated_at")
 
   @@map("wiki_pages")
+}
+
+model RollLog {
+  id              String    @id @default(uuid()) @db.Uuid
+  campaignId      String    @map("campaign_id") @db.Uuid
+  campaign        Campaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  sessionId       String?   @map("session_id") @db.Uuid
+  session         Session?  @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  characterName   String    @map("character_name")
+  notation        String
+  diceType        String    @map("dice_type")
+  individualRolls Int[]     @map("individual_rolls")
+  modifier        Int       @default(0)
+  total           Int
+  label           String    @default("")
+  critical        String?
+  rolledAt        DateTime  @default(now()) @map("rolled_at")
+
+  @@index([campaignId])
+  @@index([campaignId, sessionId])
+  @@map("roll_logs")
+}
+
+model FactionRepSnapshot {
+  id         String   @id @default(uuid()) @db.Uuid
+  campaignId String   @map("campaign_id") @db.Uuid
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  sessionId  String   @map("session_id") @db.Uuid
+  session    Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  factionId  String   @map("faction_id") @db.Uuid
+  faction    Faction  @relation(fields: [factionId], references: [id], onDelete: Cascade)
+  reputation Int
+  snapAt     DateTime @default(now()) @map("snap_at")
+
+  @@unique([sessionId, factionId])
+  @@index([campaignId])
+  @@map("faction_rep_snapshots")
+}
+
+model CharacterHPSnapshot {
+  id          String    @id @default(uuid()) @db.Uuid
+  campaignId  String    @map("campaign_id") @db.Uuid
+  campaign    Campaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  sessionId   String    @map("session_id") @db.Uuid
+  session     Session   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  characterId String    @map("character_id") @db.Uuid
+  character   Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+  hpCurrent   Int       @map("hp_current")
+  hpMax       Int       @map("hp_max")
+  snapAt      DateTime  @default(now()) @map("snap_at")
+
+  @@unique([sessionId, characterId])
+  @@index([campaignId])
+  @@map("character_hp_snapshots")
+}
+
+model EncounterStat {
+  id            String    @id @default(uuid()) @db.Uuid
+  campaignId    String    @map("campaign_id") @db.Uuid
+  campaign      Campaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  encounterId   String    @unique @map("encounter_id") @db.Uuid
+  encounter     Encounter @relation(fields: [encounterId], references: [id], onDelete: Cascade)
+  totalRounds   Int       @default(0) @map("total_rounds")
+  damageDealt   Int       @default(0) @map("damage_dealt")
+  damageTaken   Int       @default(0) @map("damage_taken")
+  enemiesKilled Int       @default(0) @map("enemies_killed")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  @@index([campaignId])
+  @@map("encounter_stats")
+}
+
+model SessionTreasure {
+  id         String   @id @default(uuid()) @db.Uuid
+  campaignId String   @map("campaign_id") @db.Uuid
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  sessionId  String   @unique @map("session_id") @db.Uuid
+  session    Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  xpGained   Int      @default(0) @map("xp_gained")
+  goldGained Int      @default(0) @map("gold_gained")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@index([campaignId])
+  @@map("session_treasures")
 }

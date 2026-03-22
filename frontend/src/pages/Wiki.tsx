@@ -106,10 +106,25 @@ async function parseEntries(entries: ParseEntry[]): Promise<ParsedPage[]> {
     const text = await entry.getText()
     const withoutTitle = text.replace(/^#[^\n]+\n/, '').trim()
     // Convert Notion internal .md links → wiki:// placeholders (resolved to page IDs after import)
+    // Resolve hrefs relative to the current file's directory so both sibling links
+    // ("Page.md"), child links ("Sub/Page.md") and cousin links ("../Other/Page.md") all
+    // produce a full root-relative path that matches the keys we store in idMap.
+    const currentDir = parts.slice(0, parts.length - 1) // e.g. ['RootFolder', 'Acto 1']
     const cleanMd = withoutTitle.replace(/\[([^\]]+)\]\(([^)]*\.md[^)]*)\)/g, (_, label, href) => {
       const decoded = decodeURIComponent(href.split('#')[0])
-      const segments = decoded.split('/').map((s) => stripNotionId(s.replace(/\.md$/, ''))).filter(Boolean)
-      const cleanPath = segments.slice(1).join('/') // skip root folder
+      const hrefParts = decoded.split('/')
+      // Walk the href relative to the current directory
+      const resolved = [...currentDir]
+      for (const part of hrefParts) {
+        if (part === '..') { if (resolved.length > 0) resolved.pop() }
+        else if (part && part !== '.') resolved.push(part)
+      }
+      // Strip root folder (index 0), Notion IDs, and .md extension
+      const pathSegments = resolved
+        .slice(1)
+        .map((s) => stripNotionId(s.replace(/\.md$/, '')))
+        .filter(Boolean)
+      const cleanPath = pathSegments.join('/')
       return cleanPath ? `[${label}](wiki://${cleanPath})` : label
     })
     results.push({
@@ -1172,6 +1187,10 @@ export default function Wiki() {
       for (const [pathKey, targetId] of idMap) {
         resolved = resolved.split(`wiki://${pathKey}`).join(`wiki://${targetId}`)
       }
+      // URL-encode spaces in any remaining unresolved wiki:// paths so marked() treats them as valid links
+      resolved = resolved.replace(/\(wiki:\/\/([^)]+)\)/g, (_, path) =>
+        `(wiki://${path.replace(/ /g, '%20')})`
+      )
       const html = await marked(resolved, { gfm: true, breaks: false }) as string
       await updatePage({ variables: { id, input: { content: html } } })
     }

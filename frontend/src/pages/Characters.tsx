@@ -90,6 +90,7 @@ export default function Characters() {
   const { data, loading, error, refetch } = useQuery(CHARACTERS, {
     variables: { campaignId, role: role || undefined, status: status || undefined, search: search || undefined },
     skip: !campaignId,
+    fetchPolicy: 'network-only',
   })
 
   const [deleteCharacter, { loading: deleting }] = useMutation(DELETE_CHARACTER)

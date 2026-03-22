@@ -31,6 +31,7 @@ import MenuBookIcon from '@mui/icons-material/MenuBook'
 import LayersIcon from '@mui/icons-material/Layers'
 import MapIcon from '@mui/icons-material/Map'
 import HistoryIcon from '@mui/icons-material/History'
+import BarChartIcon from '@mui/icons-material/BarChart'
 import { useEffect } from 'react'
 import { useQuery, gql } from '@apollo/client'
 import { useAuthStore } from '../store/auth'
@@ -62,6 +63,7 @@ const navItems = [
   { to: '/players', label: 'Players', icon: <CasinoIcon fontSize="small" /> },
   { to: '/sessions', label: 'Sessions', icon: <HistoryIcon fontSize="small" /> },
   { to: '/wiki', label: 'Wiki', icon: <MenuBookIcon fontSize="small" /> },
+  { to: '/analytics', label: 'Analytics', icon: <BarChartIcon fontSize="small" /> },
 ]
 
 function DrawerContent({ onNavigate, hasAppBar }: { onNavigate?: () => void; hasAppBar?: boolean }) {

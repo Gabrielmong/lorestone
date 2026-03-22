@@ -104,6 +104,9 @@ interface DiceStore {
   customSets: DiceSet[]
   rollHistory: RollResult[]
   pendingRoll: PendingRoll | null
+  /** Set when a session is active — rolls are only logged to analytics during a session */
+  activeSessionId: string | null
+  activeSessionCampaignId: string | null
 
   open: () => void
   close: () => void
@@ -121,6 +124,8 @@ interface DiceStore {
   clearPendingRoll: () => void
   getAllSets: () => DiceSet[]
   getActiveSet: () => DiceSet
+  setActiveSession: (sessionId: string, campaignId: string) => void
+  clearActiveSession: () => void
 }
 
 export const useDiceStore = create<DiceStore>()(
@@ -131,6 +136,8 @@ export const useDiceStore = create<DiceStore>()(
       customSets: [],
       rollHistory: [],
       pendingRoll: null,
+      activeSessionId: null,
+      activeSessionCampaignId: null,
 
       open: () => set({ isOpen: true }),
       close: () => set({ isOpen: false }),
@@ -150,6 +157,8 @@ export const useDiceStore = create<DiceStore>()(
       onRollCompleteCallback: null,
       setOnRollCompleteCallback: (cb) => set({ onRollCompleteCallback: cb }),
       clearPendingRoll: () => set({ pendingRoll: null }),
+      setActiveSession: (sessionId, campaignId) => set({ activeSessionId: sessionId, activeSessionCampaignId: campaignId }),
+      clearActiveSession: () => set({ activeSessionId: null, activeSessionCampaignId: null }),
       getAllSets: () => [...PRESETS, ...get().customSets],
       getActiveSet: () => {
         const id = get().activeDiceSetId

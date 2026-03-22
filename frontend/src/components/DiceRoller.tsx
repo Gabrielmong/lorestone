@@ -6,12 +6,17 @@ import CloseIcon from '@mui/icons-material/Close'
 import SettingsIcon from '@mui/icons-material/Settings'
 import RestartAltIcon from '@mui/icons-material/RestartAlt'
 import CasinoIcon from '@mui/icons-material/Casino'
-import { useQuery, gql } from '@apollo/client'
+import { useQuery, useMutation, gql } from '@apollo/client'
 import { useDiceStore, PRESETS, type RollResult, type DiceSet } from '../store/dice'
+import { useAuthStore } from '../store/auth'
 import DiceSetManager from './DiceSetManager'
 
 const MY_DICE_SETS = gql`
   query MyDiceSetsForTray { myDiceSets { id name colorset customBg customFg material surface texture } }
+`
+
+const LOG_ROLL = gql`
+  mutation DiceRollerLogRoll($input: LogRollInput!) { logRoll(input: $input) { id } }
 `
 
 const DIE_TYPES = [
@@ -113,6 +118,11 @@ export default function DiceRoller({ localOnly = false }: { localOnly?: boolean 
     pendingRoll, clearPendingRoll,
     onRollCompleteCallback, setOnRollCompleteCallback,
   } = useDiceStore()
+
+  const { user } = useAuthStore()
+  const [logRollMutation] = useMutation(LOG_ROLL)
+  const logRollRef = useRef(logRollMutation)
+  useEffect(() => { logRollRef.current = logRollMutation }, [logRollMutation])
 
   // Fetch custom dice sets from backend when the tray opens
   const { data: remoteSetsData } = useQuery(MY_DICE_SETS, {
@@ -229,6 +239,31 @@ export default function DiceRoller({ localOnly = false }: { localOnly?: boolean 
             setLastResult(result)
             addRollResult(result)
             setIsRolling(false)
+
+            // Log to analytics if a session is active
+            const { activeSessionId, activeSessionCampaignId } = useDiceStore.getState()
+            if (activeSessionId && activeSessionCampaignId) {
+              const dominantSide = dice[0]?.sides ?? 20
+              const diceType = `d${dominantSide}`
+              const characterName = useAuthStore.getState().user?.name ?? 'DM'
+              logRollRef.current({
+                variables: {
+                  input: {
+                    campaignId: activeSessionCampaignId,
+                    sessionId: activeSessionId,
+                    characterName,
+                    notation: result.notation,
+                    diceType,
+                    individualRolls: dice.map((d) => d.value),
+                    modifier: result.modifier,
+                    total: result.total,
+                    label: result.label,
+                    ...(result.critical === 'success' && { critical: 'nat20' }),
+                    ...(result.critical === 'failure' && { critical: 'nat1' }),
+                  },
+                },
+              }).catch(() => {})
+            }
 
             // Auto-roll callback: fill the field and close
             const cb = useDiceStore.getState().onRollCompleteCallback

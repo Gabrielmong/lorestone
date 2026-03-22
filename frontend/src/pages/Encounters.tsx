@@ -75,18 +75,18 @@ export default function Encounters() {
   })
 
   const encounters: Encounter[] = data?.encounters ?? []
-  const active = encounters.filter((e) => e.status === 'ACTIVE')
+  const active = encounters.filter((e) => e.status === 'ACTIVE' || e.status === 'PAUSED')
   const pending = encounters.filter((e) => e.status === 'PENDING')
   const completed = encounters.filter((e) => e.status === 'COMPLETED')
 
   const statusColor: Record<string, string> = {
-    ACTIVE: '#b84848', PENDING: '#786c5c', COMPLETED: '#62a870',
+    ACTIVE: '#b84848', PAUSED: '#c8a44a', PENDING: '#786c5c', COMPLETED: '#62a870',
   }
 
   const EncounterCard = ({ enc }: { enc: Encounter }) => (
     <Card sx={{
-      border: `1px solid ${enc.status === 'ACTIVE' ? 'rgba(180,72,72,0.5)' : 'rgba(120,108,92,0.2)'}`,
-      bgcolor: enc.status === 'ACTIVE' ? '#160a0a' : '#111009',
+      border: `1px solid ${enc.status === 'ACTIVE' ? 'rgba(180,72,72,0.5)' : enc.status === 'PAUSED' ? 'rgba(200,164,74,0.4)' : 'rgba(120,108,92,0.2)'}`,
+      bgcolor: enc.status === 'ACTIVE' ? '#160a0a' : enc.status === 'PAUSED' ? '#141100' : '#111009',
       position: 'relative',
     }}>
       <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
@@ -116,7 +116,7 @@ export default function Encounters() {
             <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
               <Typography sx={{ fontSize: '0.7rem', color: '#786c5c', fontFamily: '"JetBrains Mono"' }}>
                 {enc.participants.length} combatants
-                {enc.status === 'ACTIVE' && ` · Round ${enc.round}`}
+                {(enc.status === 'ACTIVE' || enc.status === 'PAUSED') && ` · Round ${enc.round}`}
               </Typography>
               {enc.linkedDecision && (
                 <Typography sx={{ fontSize: '0.7rem', color: '#c8a44a' }}>
@@ -135,11 +135,17 @@ export default function Encounters() {
                 </IconButton>
               </Tooltip>
             )}
-            {enc.status === 'ACTIVE' && (
+            {(enc.status === 'ACTIVE' || enc.status === 'PAUSED') && (
               <Button size="small" variant="contained"
                 onClick={() => navigate(`/encounter/${enc.id}`)}
-                sx={{ bgcolor: '#b84848', '&:hover': { bgcolor: '#d45f5f' }, fontSize: '0.72rem', py: 0.25 }}>
-                Resume
+                sx={{
+                  bgcolor: enc.status === 'PAUSED' ? 'transparent' : '#b84848',
+                  border: enc.status === 'PAUSED' ? '1px solid rgba(200,164,74,0.5)' : 'none',
+                  color: enc.status === 'PAUSED' ? '#c8a44a' : '#fff',
+                  '&:hover': { bgcolor: enc.status === 'PAUSED' ? 'rgba(200,164,74,0.1)' : '#d45f5f' },
+                  fontSize: '0.72rem', py: 0.25,
+                }}>
+                {enc.status === 'PAUSED' ? '⏸ Continue' : 'Resume'}
               </Button>
             )}
             {enc.status === 'COMPLETED' && (

@@ -1,4 +1,5 @@
 import type { Context } from './types'
+import { snapshotSessionEndFn } from './analytics'
 
 export const sessionResolvers = {
   Query: {
@@ -32,11 +33,15 @@ export const sessionResolvers = {
     startSession: (_: unknown, args: { id: string }, ctx: Context) =>
       ctx.prisma.session.update({ where: { id: args.id }, data: { status: 'active', startedAt: new Date() } }),
 
-    endSession: (_: unknown, args: { id: string; playerSummary?: string }, ctx: Context) =>
-      ctx.prisma.session.update({
+    endSession: async (_: unknown, args: { id: string; playerSummary?: string }, ctx: Context) => {
+      const session = await ctx.prisma.session.update({
         where: { id: args.id },
         data: { status: 'completed', endedAt: new Date(), playerSummary: args.playerSummary },
-      }),
+      })
+      // Fire-and-forget analytics snapshot (non-blocking)
+      snapshotSessionEndFn(args.id, ctx).catch(() => {})
+      return session
+    },
 
     updateSession: (_: unknown, args: { id: string; input: Record<string, unknown> }, ctx: Context) =>
       ctx.prisma.session.update({ where: { id: args.id }, data: args.input }),

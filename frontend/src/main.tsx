@@ -30,6 +30,7 @@ import Wiki from './pages/Wiki'
 import Missions from './pages/Missions'
 import Chapters from './pages/Chapters'
 import Sessions from './pages/Sessions'
+import Analytics from './pages/Analytics'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
@@ -67,6 +68,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
                   <Route path="/missions" element={<Missions />} />
                   <Route path="/chapters" element={<Chapters />} />
                   <Route path="/sessions" element={<Sessions />} />
+                  <Route path="/analytics" element={<Analytics />} />
                 </Route>
               </Route>
 

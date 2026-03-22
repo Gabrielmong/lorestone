@@ -204,10 +204,106 @@ const extensions = `
     chaptersCompleted: Int!
   }
 
+  # Analytics types
+  type RollLog {
+    id: ID!
+    campaignId: ID!
+    sessionId: ID
+    characterName: String!
+    notation: String!
+    diceType: String!
+    individualRolls: [Int!]!
+    modifier: Int!
+    total: Int!
+    label: String!
+    critical: String
+    rolledAt: DateTime!
+  }
+
+  input LogRollInput {
+    campaignId: ID!
+    sessionId: ID
+    characterName: String!
+    notation: String!
+    diceType: String!
+    individualRolls: [Int!]!
+    modifier: Int!
+    total: Int!
+    label: String!
+    critical: String
+  }
+
+  type SessionActivityPoint {
+    sessionNumber: Int!
+    playedAt: Date
+    durationMinutes: Int!
+    rollCount: Int!
+    encounterCount: Int!
+    xpGained: Int!
+    goldGained: Int!
+  }
+
+  type CharacterRollStats {
+    characterName: String!
+    totalRolls: Int!
+    nat20s: Int!
+    nat1s: Int!
+    avgTotal: Float!
+  }
+
+  type FactionRepPoint {
+    sessionNumber: Int!
+    reputation: Int!
+  }
+
+  type FactionRepTimeline {
+    factionId: ID!
+    factionName: String!
+    color: String
+    points: [FactionRepPoint!]!
+  }
+
+  type CharacterHPPoint {
+    sessionNumber: Int!
+    hpCurrent: Int!
+    hpMax: Int!
+  }
+
+  type CharacterHPTimeline {
+    characterId: ID!
+    characterName: String!
+    points: [CharacterHPPoint!]!
+  }
+
+  type ActivityDay {
+    date: String!
+    count: Int!
+  }
+
+  type EncounterStatResult {
+    encounterId: ID!
+    encounterName: String!
+    totalRounds: Int!
+    damageDealt: Int!
+    damageTaken: Int!
+    enemiesKilled: Int!
+  }
+
+  type FullAnalytics {
+    sessionActivity: [SessionActivityPoint!]!
+    characterRollStats: [CharacterRollStats!]!
+    factionRepTimelines: [FactionRepTimeline!]!
+    characterHPTimelines: [CharacterHPTimeline!]!
+    activityHeatmap: [ActivityDay!]!
+    encounterStats: [EncounterStatResult!]!
+  }
+
   extend type Query {
     me: User
     playerView(shareToken: String!): PlayerView
     campaignStats(campaignId: ID!): CampaignStats!
+    rollLogs(campaignId: ID!, sessionId: ID, limit: Int): [RollLog!]!
+    analytics(campaignId: ID!): FullAnalytics!
   }
 
   extend type Mutation {
@@ -215,6 +311,10 @@ const extensions = `
     login(email: String!, password: String!): AuthPayload!
     updateProfile(name: String, dateOfBirth: Date, avatarUrl: String): User!
     changePassword(currentPassword: String!, newPassword: String!): Boolean!
+    logRoll(input: LogRollInput!): RollLog!
+    upsertSessionTreasure(sessionId: ID!, campaignId: ID!, xpGained: Int!, goldGained: Int!): Boolean!
+    upsertEncounterStat(encounterId: ID!, campaignId: ID!, totalRounds: Int, damageDealt: Int, damageTaken: Int, enemiesKilled: Int): Boolean!
+    snapshotSessionEnd(sessionId: ID!): Boolean!
 
     # Full updates
     updateChapter(id: ID!, input: UpdateChapterInput!): Chapter!

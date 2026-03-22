@@ -1,13 +1,14 @@
 import { ApolloClient, InMemoryCache, createHttpLink, from } from '@apollo/client'
 import { setContext } from '@apollo/client/link/context'
 import { onError } from '@apollo/client/link/error'
+import { useAuthStore } from './store/auth'
 
 const httpLink = createHttpLink({
   uri: import.meta.env.VITE_API_URL ?? 'http://localhost:4000/graphql',
 })
 
 const authLink = setContext((_, { headers }) => {
-  const token = localStorage.getItem('ttrpg_token')
+  const token = useAuthStore.getState().token
   return {
     headers: {
       ...headers,
@@ -18,7 +19,7 @@ const authLink = setContext((_, { headers }) => {
 
 const errorLink = onError(({ graphQLErrors }) => {
   if (graphQLErrors?.some((e) => e.extensions?.code === 'UNAUTHENTICATED')) {
-    localStorage.removeItem('ttrpg_token')
+    useAuthStore.getState().logout()
     window.location.href = '/login'
   }
 })
