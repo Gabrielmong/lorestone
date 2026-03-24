@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, gql } from '@apollo/client'
 import { useEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
@@ -6,9 +7,12 @@ import Placeholder from '@tiptap/extension-placeholder'
 import Underline from '@tiptap/extension-underline'
 import TaskList from '@tiptap/extension-task-list'
 import TaskItem from '@tiptap/extension-task-item'
+import Link from '@tiptap/extension-link'
+import { Table, TableRow, TableHeader, TableCell } from '@tiptap/extension-table'
 import {
   Box, Typography, IconButton, Tooltip, TextField, CircularProgress,
-  Select, MenuItem, Dialog, useTheme, useMediaQuery, Chip,
+  Select, MenuItem, Menu, Divider, Dialog, DialogTitle, DialogContent, DialogActions, Button,
+  useTheme, useMediaQuery, Chip,
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
 import DeleteIcon from '@mui/icons-material/Delete'
@@ -21,10 +25,21 @@ import FormatListNumberedIcon from '@mui/icons-material/FormatListNumbered'
 import CheckBoxOutlineBlankIcon from '@mui/icons-material/CheckBoxOutlineBlank'
 import CodeIcon from '@mui/icons-material/Code'
 import FormatQuoteIcon from '@mui/icons-material/FormatQuote'
+import HorizontalRuleIcon from '@mui/icons-material/HorizontalRule'
+import InsertLinkIcon from '@mui/icons-material/InsertLink'
+import LinkOffIcon from '@mui/icons-material/LinkOff'
+import TableChartIcon from '@mui/icons-material/TableChart'
+import SearchIcon from '@mui/icons-material/Search'
 import MapIcon from '@mui/icons-material/Map'
 import { useCampaign } from '../context/campaign'
 
 // ── GraphQL ────────────────────────────────────────────────────────────────────
+
+const WIKI_PAGES = gql`
+  query WikiPagesForChapters($campaignId: ID!) {
+    wikiPages(campaignId: $campaignId) { id title icon }
+  }
+`
 
 const CHAPTERS = gql`
   query ChaptersPage($campaignId: ID!) {
@@ -84,10 +99,20 @@ function ChapterEditor({ chapter, onSave }: {
 }) {
   const editorTheme = useTheme()
   const isMobileEditor = useMediaQuery(editorTheme.breakpoints.down('md'))
+  const navigate = useNavigate()
+  const { campaignId } = useCampaign()
+  const { data: wikiData } = useQuery(WIKI_PAGES, { variables: { campaignId }, skip: !campaignId, fetchPolicy: 'cache-first' })
+  const wikiPages: { id: string; title: string; icon?: string | null }[] = wikiData?.wikiPages ?? []
 
   const [name, setName] = useState(chapter.name)
   const [status, setStatus] = useState(chapter.status)
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle')
+  const [linkOpen, setLinkOpen] = useState(false)
+  const [linkUrl, setLinkUrl] = useState('')
+  const [pagePickerOpen, setPagePickerOpen] = useState(false)
+  const [pageSearch, setPageSearch] = useState('')
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null)
+  const savedSel = useRef<{ from: number; to: number } | null>(null)
   const [sheetOpen, setSheetOpen] = useState(false)
   const PEEK_HEIGHT = 48
 
@@ -131,6 +156,8 @@ function ChapterEditor({ chapter, onSave }: {
       StarterKit.configure({ heading: { levels: [1, 2, 3] } }),
       Placeholder.configure({ placeholder: 'Write chapter notes…' }),
       Underline, TaskList, TaskItem.configure({ nested: true }),
+      Link.configure({ openOnClick: false, HTMLAttributes: { rel: 'noopener noreferrer', target: '_blank' }, isAllowedUri: () => true }),
+      Table.configure({ resizable: false }), TableRow, TableHeader, TableCell,
     ],
     content: chapter.content || '',
     onUpdate({ editor }) {
@@ -140,6 +167,14 @@ function ChapterEditor({ chapter, onSave }: {
     },
     editorProps: {
       attributes: { style: 'outline:none; min-height:40vh; font-size:1rem; color:#c8b89a; line-height:1.75; font-family:"Crimson Pro", Georgia, serif' },
+      handleClick(_view, _pos, event) {
+        const anchor = (event.target as HTMLElement).closest('a')
+        if (anchor?.getAttribute('href')?.startsWith('wiki://')) {
+          event.preventDefault()
+          navigate(`/wiki?page=${anchor.getAttribute('href')!.slice(7)}`)
+          return true
+        }
+      },
     },
   })
 
@@ -153,6 +188,38 @@ function ChapterEditor({ chapter, onSave }: {
   if (!editor) return null
 
   const btn = TBTN
+  const hasLink = editor.isActive('link')
+  const openLink = () => {
+    if (!editor.state.selection.empty) savedSel.current = { from: editor.state.selection.from, to: editor.state.selection.to }
+    setLinkUrl(editor.getAttributes('link').href ?? '')
+    setLinkOpen(true)
+  }
+  const applyLink = () => {
+    if (savedSel.current) editor.chain().focus().setTextSelection(savedSel.current).run()
+    if (linkUrl.trim()) editor.chain().focus().setLink({ href: linkUrl.trim() }).run()
+    else editor.chain().focus().unsetLink().run()
+    savedSel.current = null
+    setLinkOpen(false)
+  }
+
+  const applyPageLink = (pageId: string) => {
+    if (savedSel.current) editor.chain().focus().setTextSelection(savedSel.current).run()
+    editor.chain().focus().setLink({ href: `wiki://${pageId}` }).run()
+    savedSel.current = null
+    setPagePickerOpen(false)
+    setPageSearch('')
+  }
+
+  const closeCtx = () => setCtxMenu(null)
+  const handleContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault()
+    const inTable = editor.isActive('table')
+    if (!editor.state.selection.empty || inTable) {
+      if (!editor.state.selection.empty)
+        savedSel.current = { from: editor.state.selection.from, to: editor.state.selection.to }
+      setCtxMenu({ x: e.clientX, y: e.clientY })
+    }
+  }
 
   const rightPanel = (
     <>
@@ -219,6 +286,18 @@ function ChapterEditor({ chapter, onSave }: {
         <Box sx={{ width: '1px', bgcolor: 'rgba(120,108,92,0.25)', mx: 0.25, height: 16, flexShrink: 0 }} />
         <Tooltip title="Code"><IconButton size="small" onMouseDown={(e) => { e.preventDefault(); editor.chain().focus().toggleCodeBlock().run() }} sx={btn(editor.isActive('codeBlock'))}><CodeIcon sx={{ fontSize: 16 }} /></IconButton></Tooltip>
         <Tooltip title="Quote"><IconButton size="small" onMouseDown={(e) => { e.preventDefault(); editor.chain().focus().toggleBlockquote().run() }} sx={btn(editor.isActive('blockquote'))}><FormatQuoteIcon sx={{ fontSize: 16 }} /></IconButton></Tooltip>
+        <Tooltip title="Divider"><IconButton size="small" onMouseDown={(e) => { e.preventDefault(); editor.chain().focus().setHorizontalRule().run() }} sx={btn(false)}><HorizontalRuleIcon sx={{ fontSize: 16 }} /></IconButton></Tooltip>
+        <Box sx={{ width: '1px', bgcolor: 'rgba(120,108,92,0.25)', mx: 0.25, height: 16, flexShrink: 0 }} />
+        <Tooltip title={hasLink ? 'Edit link' : 'Add link'}>
+          <IconButton size="small" onMouseDown={(e) => { e.preventDefault(); openLink() }} sx={btn(hasLink)}><InsertLinkIcon sx={{ fontSize: 16 }} /></IconButton>
+        </Tooltip>
+        {hasLink && <Tooltip title="Remove link"><IconButton size="small" onMouseDown={(e) => { e.preventDefault(); editor.chain().focus().unsetLink().run() }} sx={btn(false)}><LinkOffIcon sx={{ fontSize: 16 }} /></IconButton></Tooltip>}
+        <Tooltip title="Link to wiki page">
+          <IconButton size="small" onMouseDown={(e) => { e.preventDefault(); if (!editor.state.selection.empty) savedSel.current = { from: editor.state.selection.from, to: editor.state.selection.to }; setPagePickerOpen(true) }} sx={btn(hasLink && editor.getAttributes('link').href?.startsWith('wiki://'))}>
+            <SearchIcon sx={{ fontSize: 16 }} />
+          </IconButton>
+        </Tooltip>
+        <Tooltip title="Insert table"><IconButton size="small" onMouseDown={(e) => { e.preventDefault(); editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run() }} sx={btn(editor.isActive('table'))}><TableChartIcon sx={{ fontSize: 16 }} /></IconButton></Tooltip>
         <Box sx={{ ml: 'auto', display: 'flex', alignItems: 'center', gap: 0.5 }}>
           {saveStatus === 'saving' && <CircularProgress size={10} sx={{ color: '#786c5c' }} />}
           {saveStatus !== 'idle' && <Typography sx={{ fontSize: '0.65rem', color: '#786c5c', fontFamily: '"JetBrains Mono"' }}>{saveStatus === 'saving' ? 'Saving…' : 'Saved'}</Typography>}
@@ -269,12 +348,21 @@ function ChapterEditor({ chapter, onSave }: {
             '.tiptap code': { fontFamily: '"JetBrains Mono"', fontSize: '0.82em', bgcolor: 'rgba(120,108,92,0.15)', px: 0.5, borderRadius: 0.5, color: '#c8a44a' },
             '.tiptap pre': { bgcolor: '#111009', p: 2, borderRadius: 1, my: 1, border: '1px solid rgba(120,108,92,0.2)', '& code': { bgcolor: 'transparent', p: 0, color: '#c8a44a', fontSize: '0.85rem' } },
             '.tiptap hr': { border: 'none', borderTop: '1px solid rgba(120,108,92,0.2)', my: 2 },
+            '.tiptap a': { color: '#c8a44a', textDecorationColor: 'rgba(200,164,74,0.4)' },
+            '.tiptap a[href^="wiki://"]': { color: '#a8c4e8', textDecorationColor: 'rgba(168,196,232,0.4)', cursor: 'pointer' },
+            '.tiptap table': { borderCollapse: 'collapse', width: '100%', my: 1.5, fontSize: '0.9rem' },
+            '.tiptap th, .tiptap td': { border: '1px solid rgba(120,108,92,0.3)', px: 1.5, py: 0.75, textAlign: 'left', verticalAlign: 'top' },
+            '.tiptap th': { bgcolor: 'rgba(120,108,92,0.12)', color: '#c8a44a', fontFamily: '"Cinzel", serif', fontSize: '0.8rem', fontWeight: 600 },
+            '.tiptap td': { color: '#b4a48a' },
+            '.tiptap .selectedCell::after': { background: 'rgba(200,164,74,0.1)', content: '""', position: 'absolute', inset: 0, pointerEvents: 'none' },
             '.tiptap ul[data-type="taskList"]': { listStyle: 'none', pl: 1 },
             '.tiptap li[data-type="taskItem"]': { display: 'flex', alignItems: 'flex-start', gap: 1, my: 0.25 },
             '.tiptap li[data-type="taskItem"] > label input': { accentColor: '#c8a44a', width: 14, height: 14 },
             '.tiptap li[data-type="taskItem"] > div': { flex: 1 },
             '.tiptap p.is-editor-empty:first-child::before': { content: 'attr(data-placeholder)', color: 'rgba(120,108,92,0.4)', pointerEvents: 'none', float: 'left', height: 0 },
-          }}>
+          }}
+            onContextMenu={handleContextMenu}
+          >
             <EditorContent editor={editor} />
           </Box>
         </Box>
@@ -320,6 +408,76 @@ function ChapterEditor({ chapter, onSave }: {
           </Box>
         )}
       </Box>
+
+      {/* Context menu */}
+      <Menu open={Boolean(ctxMenu)} onClose={closeCtx} anchorReference="anchorPosition"
+        anchorPosition={ctxMenu ? { top: ctxMenu.y, left: ctxMenu.x } : undefined}
+        slotProps={{ paper: { sx: { bgcolor: '#111009', border: '1px solid rgba(120,108,92,0.2)', minWidth: 170 } } }}>
+        <MenuItem dense onClick={() => { editor.chain().focus().toggleBold().run(); closeCtx() }} sx={{ fontSize: '0.82rem', color: editor.isActive('bold') ? '#c8a44a' : '#b4a48a', gap: 1 }}><FormatBoldIcon sx={{ fontSize: 14 }} /> Bold</MenuItem>
+        <MenuItem dense onClick={() => { editor.chain().focus().toggleItalic().run(); closeCtx() }} sx={{ fontSize: '0.82rem', color: editor.isActive('italic') ? '#c8a44a' : '#b4a48a', gap: 1 }}><FormatItalicIcon sx={{ fontSize: 14 }} /> Italic</MenuItem>
+        <MenuItem dense onClick={() => { editor.chain().focus().toggleUnderline().run(); closeCtx() }} sx={{ fontSize: '0.82rem', color: editor.isActive('underline') ? '#c8a44a' : '#b4a48a', gap: 1 }}><FormatUnderlinedIcon sx={{ fontSize: 14 }} /> Underline</MenuItem>
+        <MenuItem dense onClick={() => { editor.chain().focus().toggleCode().run(); closeCtx() }} sx={{ fontSize: '0.82rem', color: editor.isActive('code') ? '#c8a44a' : '#b4a48a', gap: 1 }}><CodeIcon sx={{ fontSize: 14 }} /> Code</MenuItem>
+        <Divider sx={{ borderColor: 'rgba(120,108,92,0.15)', my: 0.5 }} />
+        <MenuItem dense onClick={() => { closeCtx(); openLink() }} sx={{ fontSize: '0.82rem', color: '#b4a48a', gap: 1 }}><InsertLinkIcon sx={{ fontSize: 14 }} /> {hasLink ? 'Edit link' : 'Add link'}</MenuItem>
+        <MenuItem dense onClick={() => { closeCtx(); if (!editor.state.selection.empty) savedSel.current = { from: editor.state.selection.from, to: editor.state.selection.to }; setPagePickerOpen(true) }} sx={{ fontSize: '0.82rem', color: '#a8c4e8', gap: 1 }}><SearchIcon sx={{ fontSize: 14 }} /> Link to wiki page</MenuItem>
+        {hasLink && <MenuItem dense onClick={() => { editor.chain().focus().unsetLink().run(); closeCtx() }} sx={{ fontSize: '0.82rem', color: '#b84848', gap: 1 }}><LinkOffIcon sx={{ fontSize: 14 }} /> Remove link</MenuItem>}
+        {editor.isActive('table') && [
+          <Divider key="td" sx={{ borderColor: 'rgba(120,108,92,0.15)', my: 0.5 }} />,
+          <MenuItem key="arb" dense onClick={() => { editor.chain().focus().addRowBefore().run(); closeCtx() }} sx={{ fontSize: '0.82rem', color: '#b4a48a', gap: 1 }}><TableChartIcon sx={{ fontSize: 14 }} /> Add row above</MenuItem>,
+          <MenuItem key="ar" dense onClick={() => { editor.chain().focus().addRowAfter().run(); closeCtx() }} sx={{ fontSize: '0.82rem', color: '#b4a48a', gap: 1 }}><TableChartIcon sx={{ fontSize: 14 }} /> Add row below</MenuItem>,
+          <MenuItem key="acb" dense onClick={() => { editor.chain().focus().addColumnBefore().run(); closeCtx() }} sx={{ fontSize: '0.82rem', color: '#b4a48a', gap: 1 }}><TableChartIcon sx={{ fontSize: 14 }} /> Add column before</MenuItem>,
+          <MenuItem key="ac" dense onClick={() => { editor.chain().focus().addColumnAfter().run(); closeCtx() }} sx={{ fontSize: '0.82rem', color: '#b4a48a', gap: 1 }}><TableChartIcon sx={{ fontSize: 14 }} /> Add column after</MenuItem>,
+          editor.can().mergeCells() && <MenuItem key="mc" dense onClick={() => { editor.chain().focus().mergeCells().run(); closeCtx() }} sx={{ fontSize: '0.82rem', color: '#b4a48a', gap: 1 }}><TableChartIcon sx={{ fontSize: 14 }} /> Merge cells</MenuItem>,
+          editor.can().splitCell() && <MenuItem key="sc" dense onClick={() => { editor.chain().focus().splitCell().run(); closeCtx() }} sx={{ fontSize: '0.82rem', color: '#b4a48a', gap: 1 }}><TableChartIcon sx={{ fontSize: 14 }} /> Split cell</MenuItem>,
+          <Divider key="td2" sx={{ borderColor: 'rgba(120,108,92,0.15)', my: 0.5 }} />,
+          <MenuItem key="dr" dense onClick={() => { editor.chain().focus().deleteRow().run(); closeCtx() }} sx={{ fontSize: '0.82rem', color: '#b4a48a', gap: 1 }}><TableChartIcon sx={{ fontSize: 14 }} /> Delete row</MenuItem>,
+          <MenuItem key="dc" dense onClick={() => { editor.chain().focus().deleteColumn().run(); closeCtx() }} sx={{ fontSize: '0.82rem', color: '#b4a48a', gap: 1 }}><TableChartIcon sx={{ fontSize: 14 }} /> Delete column</MenuItem>,
+          <MenuItem key="dt" dense onClick={() => { editor.chain().focus().deleteTable().run(); closeCtx() }} sx={{ fontSize: '0.82rem', color: '#b84848', gap: 1 }}><TableChartIcon sx={{ fontSize: 14 }} /> Delete table</MenuItem>,
+        ]}
+      </Menu>
+
+      {/* Page picker dialog */}
+      <Dialog open={pagePickerOpen} onClose={() => { setPagePickerOpen(false); setPageSearch('') }} maxWidth="xs" fullWidth
+        PaperProps={{ sx: { bgcolor: '#111009', border: '1px solid rgba(120,108,92,0.2)' } }}>
+        <DialogTitle sx={{ fontFamily: '"Cinzel", serif', color: '#c8a44a', fontSize: '1rem', pb: 1 }}>Link to Wiki Page</DialogTitle>
+        <DialogContent sx={{ pt: 1, pb: 0 }}>
+          <TextField fullWidth autoFocus size="small" placeholder="Search pages…" value={pageSearch}
+            onChange={(e) => setPageSearch(e.target.value)} sx={{ mb: 1 }} />
+          <Box sx={{ maxHeight: 320, overflow: 'auto', mx: -1 }}>
+            {wikiPages.filter((p) => p.title.toLowerCase().includes(pageSearch.toLowerCase())).length === 0
+              ? <Typography sx={{ fontSize: '0.82rem', color: '#786c5c', px: 1, py: 1 }}>No pages found</Typography>
+              : wikiPages.filter((p) => p.title.toLowerCase().includes(pageSearch.toLowerCase())).map((p) => (
+                <MenuItem key={p.id} onClick={() => applyPageLink(p.id)}
+                  sx={{ fontSize: '0.85rem', color: '#b4a48a', gap: 1, borderRadius: 0.5, '&:hover': { bgcolor: 'rgba(200,164,74,0.06)', color: '#e6d8c0' } }}>
+                  <span style={{ fontSize: '1rem', lineHeight: 1 }}>{p.icon ?? '📄'}</span> {p.title}
+                </MenuItem>
+              ))
+            }
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ px: 2, pb: 2, pt: 1 }}>
+          <Button onClick={() => { setPagePickerOpen(false); setPageSearch('') }} sx={{ color: '#786c5c' }}>Cancel</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Link dialog */}
+      <Dialog open={linkOpen} onClose={() => setLinkOpen(false)} maxWidth="xs" fullWidth
+        PaperProps={{ sx: { bgcolor: '#111009', border: '1px solid rgba(120,108,92,0.2)' } }}>
+        <DialogTitle sx={{ fontFamily: '"Cinzel", serif', color: '#c8a44a', fontSize: '1rem', pb: 1 }}>
+          {hasLink ? 'Edit Link' : 'Add Link'}
+        </DialogTitle>
+        <DialogContent>
+          <TextField autoFocus fullWidth size="small" label="URL" value={linkUrl}
+            onChange={(e) => setLinkUrl(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); applyLink() } }}
+            placeholder="https://…" />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setLinkOpen(false)} sx={{ color: '#786c5c' }}>Cancel</Button>
+          {hasLink && <Button onClick={() => { editor.chain().focus().unsetLink().run(); setLinkOpen(false) }} sx={{ color: '#b84848' }}>Remove</Button>}
+          <Button onClick={applyLink} variant="contained" disabled={!linkUrl.trim()}>Apply</Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   )
 }

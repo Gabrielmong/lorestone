@@ -19,6 +19,7 @@ import Underline from '@tiptap/extension-underline'
 import TaskList from '@tiptap/extension-task-list'
 import TaskItem from '@tiptap/extension-task-item'
 import Link from '@tiptap/extension-link'
+import { Table, TableRow, TableHeader, TableCell } from '@tiptap/extension-table'
 import { marked } from 'marked'
 import JSZip from 'jszip'
 import {
@@ -48,6 +49,7 @@ import HorizontalRuleIcon from '@mui/icons-material/HorizontalRule'
 import UploadFileIcon from '@mui/icons-material/UploadFile'
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator'
 import UnfoldLessIcon from '@mui/icons-material/UnfoldLess'
+import TableChartIcon from '@mui/icons-material/TableChart'
 import InsertLinkIcon from '@mui/icons-material/InsertLink'
 import LinkOffIcon from '@mui/icons-material/LinkOff'
 import { useCampaign } from '../context/campaign'
@@ -542,6 +544,10 @@ function WikiEditor({
       TaskList,
       TaskItem.configure({ nested: true }),
       Link.configure({ openOnClick: false, HTMLAttributes: { rel: 'noopener noreferrer', target: null }, isAllowedUri: () => true }),
+      Table.configure({ resizable: false }),
+      TableRow,
+      TableHeader,
+      TableCell,
       MarkdownLinkInput,
     ],
     content: page.content || '',
@@ -601,9 +607,10 @@ function WikiEditor({
 
   const handleContextMenu = (e: React.MouseEvent) => {
     e.preventDefault()
-    if (!editor.state.selection.empty) {
-      // Save before the menu steals focus and ProseMirror clears the selection
-      savedSel.current = { from: editor.state.selection.from, to: editor.state.selection.to }
+    const inTable = editor.isActive('table')
+    if (!editor.state.selection.empty || inTable) {
+      if (!editor.state.selection.empty)
+        savedSel.current = { from: editor.state.selection.from, to: editor.state.selection.to }
       setCtxMenu({ x: e.clientX, y: e.clientY })
     }
   }
@@ -672,6 +679,11 @@ function WikiEditor({
         <Tooltip title="Divider">
           <IconButton size="small" onMouseDown={(e) => { e.preventDefault(); editor.chain().focus().setHorizontalRule().run() }} sx={btn(false)}>
             <HorizontalRuleIcon sx={{ fontSize: 16 }} />
+          </IconButton>
+        </Tooltip>
+        <Tooltip title="Insert table">
+          <IconButton size="small" onMouseDown={(e) => { e.preventDefault(); editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run() }} sx={btn(editor.isActive('table'))}>
+            <TableChartIcon sx={{ fontSize: 16 }} />
           </IconButton>
         </Tooltip>
         <Box sx={{ width: '1px', bgcolor: 'rgba(120,108,92,0.25)', mx: 0.25, height: 16 }} />
@@ -777,6 +789,16 @@ function WikiEditor({
             '& code': { bgcolor: 'transparent', p: 0, color: '#c8a44a', fontSize: '0.85rem' },
           },
           '.tiptap hr': { border: 'none', borderTop: '1px solid rgba(120,108,92,0.2)', my: 2 },
+          // Tables
+          '.tiptap table': { borderCollapse: 'collapse', width: '100%', my: 1.5, fontSize: '0.9rem' },
+          '.tiptap th, .tiptap td': {
+            border: '1px solid rgba(120,108,92,0.3)', px: 1.5, py: 0.75,
+            textAlign: 'left', verticalAlign: 'top',
+          },
+          '.tiptap th': { bgcolor: 'rgba(120,108,92,0.12)', color: '#c8a44a', fontFamily: '"Cinzel", serif', fontSize: '0.8rem', fontWeight: 600 },
+          '.tiptap td': { color: '#b4a48a' },
+          '.tiptap .selectedCell::after': { background: 'rgba(200,164,74,0.1)', content: '""', position: 'absolute', inset: 0, pointerEvents: 'none' },
+          '.tiptap .column-resize-handle': { display: 'none' },
           '.tiptap a': { color: '#c8a44a', textDecorationColor: 'rgba(200,164,74,0.4)' },
           '.tiptap a[href^="wiki://"]': { color: '#a8c4e8', textDecorationColor: 'rgba(168,196,232,0.4)', cursor: 'pointer' },
           // Task list
@@ -836,6 +858,50 @@ function WikiEditor({
             <LinkOffIcon sx={{ fontSize: 14 }} /> Remove link
           </MenuItem>
         )}
+        {editor.isActive('table') && [
+          <Divider key="td" sx={{ borderColor: 'rgba(120,108,92,0.15)', my: 0.5 }} />,
+          <MenuItem key="arb" dense onClick={() => { editor.chain().focus().addRowBefore().run(); closeCtx() }}
+            sx={{ fontSize: '0.82rem', color: '#b4a48a', gap: 1 }}>
+            <TableChartIcon sx={{ fontSize: 14 }} /> Add row above
+          </MenuItem>,
+          <MenuItem key="ar" dense onClick={() => { editor.chain().focus().addRowAfter().run(); closeCtx() }}
+            sx={{ fontSize: '0.82rem', color: '#b4a48a', gap: 1 }}>
+            <TableChartIcon sx={{ fontSize: 14 }} /> Add row below
+          </MenuItem>,
+          <MenuItem key="acb" dense onClick={() => { editor.chain().focus().addColumnBefore().run(); closeCtx() }}
+            sx={{ fontSize: '0.82rem', color: '#b4a48a', gap: 1 }}>
+            <TableChartIcon sx={{ fontSize: 14 }} /> Add column before
+          </MenuItem>,
+          <MenuItem key="ac" dense onClick={() => { editor.chain().focus().addColumnAfter().run(); closeCtx() }}
+            sx={{ fontSize: '0.82rem', color: '#b4a48a', gap: 1 }}>
+            <TableChartIcon sx={{ fontSize: 14 }} /> Add column after
+          </MenuItem>,
+          editor.can().mergeCells() && (
+            <MenuItem key="mc" dense onClick={() => { editor.chain().focus().mergeCells().run(); closeCtx() }}
+              sx={{ fontSize: '0.82rem', color: '#b4a48a', gap: 1 }}>
+              <TableChartIcon sx={{ fontSize: 14 }} /> Merge cells
+            </MenuItem>
+          ),
+          editor.can().splitCell() && (
+            <MenuItem key="sc" dense onClick={() => { editor.chain().focus().splitCell().run(); closeCtx() }}
+              sx={{ fontSize: '0.82rem', color: '#b4a48a', gap: 1 }}>
+              <TableChartIcon sx={{ fontSize: 14 }} /> Split cell
+            </MenuItem>
+          ),
+          <Divider key="td2" sx={{ borderColor: 'rgba(120,108,92,0.15)', my: 0.5 }} />,
+          <MenuItem key="dr" dense onClick={() => { editor.chain().focus().deleteRow().run(); closeCtx() }}
+            sx={{ fontSize: '0.82rem', color: '#b4a48a', gap: 1 }}>
+            <TableChartIcon sx={{ fontSize: 14 }} /> Delete row
+          </MenuItem>,
+          <MenuItem key="dc" dense onClick={() => { editor.chain().focus().deleteColumn().run(); closeCtx() }}
+            sx={{ fontSize: '0.82rem', color: '#b4a48a', gap: 1 }}>
+            <TableChartIcon sx={{ fontSize: 14 }} /> Delete column
+          </MenuItem>,
+          <MenuItem key="dt" dense onClick={() => { editor.chain().focus().deleteTable().run(); closeCtx() }}
+            sx={{ fontSize: '0.82rem', color: '#b84848', gap: 1 }}>
+            <TableChartIcon sx={{ fontSize: 14 }} /> Delete table
+          </MenuItem>,
+        ]}
       </Menu>
 
       {/* ── External link dialog ───────────────────────────────────────── */}
