@@ -382,6 +382,46 @@ const extensions = `
     wikiPages(campaignId: ID!): [WikiPage!]!
     wikiPage(id: ID!): WikiPage
   }
+
+  type TranscriptSegment {
+    id: ID!
+    sessionId: ID!
+    speakerId: Int
+    speakerName: String
+    rawText: String!
+    cleanText: String
+    isGameRelated: Boolean!
+    startTime: Float!
+    createdAt: DateTime!
+  }
+
+  type SpeakerMapping {
+    speakerId: Int!
+    speakerName: String!
+  }
+
+  extend type Query {
+    transcriptSegments(sessionId: ID!): [TranscriptSegment!]!
+    deepgramToken: String!
+  }
+
+  type SessionSummary {
+    playerSummary: String!
+    dmNotes: String!
+  }
+
+  extend type Mutation {
+    generateSessionSummary(sessionId: ID!): SessionSummary!
+    addTranscriptSegment(
+      sessionId: ID!
+      speakerId: Int
+      speakerName: String
+      rawText: String!
+      startTime: Float!
+    ): TranscriptSegment!
+    filterTranscriptBatch(sessionId: ID!, segmentIds: [ID!]!): Boolean!
+    assignSpeakerName(sessionId: ID!, speakerId: Int!, speakerName: String!): Boolean!
+  }
 `
 
 export const typeDefs = [baseTypeDefs, extensions]

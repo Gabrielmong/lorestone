@@ -292,6 +292,7 @@ model Session {
   factionRepSnapshots  FactionRepSnapshot[]
   characterHPSnapshots CharacterHPSnapshot[]
   treasure             SessionTreasure?
+  transcriptSegments   SessionTranscript[]
   createdAt            DateTime                @default(now()) @map("created_at")
   updatedAt            DateTime                @updatedAt @map("updated_at")
 
@@ -503,4 +504,20 @@ model SessionTreasure {
 
   @@index([campaignId])
   @@map("session_treasures")
+}
+
+model SessionTranscript {
+  id            String   @id @default(uuid()) @db.Uuid
+  sessionId     String   @map("session_id") @db.Uuid
+  session       Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  speakerId     Int?     @map("speaker_id")
+  speakerName   String?  @map("speaker_name")
+  rawText       String   @map("raw_text")
+  cleanText     String?  @map("clean_text")
+  isGameRelated Boolean  @default(true) @map("is_game_related")
+  startTime     Float    @map("start_time")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@index([sessionId])
+  @@map("session_transcripts")
 }

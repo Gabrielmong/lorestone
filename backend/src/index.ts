@@ -1,4 +1,6 @@
 import 'dotenv/config'
+import http from 'http'
+import { WebSocketServer, WebSocket } from 'ws'
 import express from 'express'
 import cors from 'cors'
 import multer from 'multer'
@@ -189,7 +191,43 @@ async function main() {
   )
 
   const port = Number(process.env.PORT) || 4000
-  app.listen(port, () => {
+  const httpServer = http.createServer(app)
+
+  // Deepgram proxy WebSocket — browser sends audio, we forward to Deepgram and return transcripts
+  const wss = new WebSocketServer({ server: httpServer, path: '/transcribe' })
+  wss.on('connection', (browserWs, req) => {
+    const lang = new URL(req.url ?? '', 'http://x').searchParams.get('lang') ?? 'es'
+    const dgWs = new WebSocket(
+      `wss://api.deepgram.com/v1/listen?model=nova-2&language=${lang}&diarize=true&punctuate=true&interim_results=true&vad_events=true&endpointing=1000&encoding=linear16&sample_rate=16000`,
+      { headers: { Authorization: `Token ${process.env.DEEPGRAM_API_KEY}` } },
+    )
+
+    // Send KeepAlive every 8s so Deepgram doesn't close idle connections
+    const keepAlive = setInterval(() => {
+      if (dgWs.readyState === WebSocket.OPEN) {
+        dgWs.send(JSON.stringify({ type: 'KeepAlive' }))
+      }
+    }, 8000)
+
+    dgWs.on('open', () => browserWs.send(JSON.stringify({ type: 'Connected' })))
+    dgWs.on('message', (data) => {
+      if (browserWs.readyState === WebSocket.OPEN) browserWs.send(data.toString())
+    })
+    dgWs.on('error', (err) => console.error('Deepgram WS error:', err))
+    dgWs.on('close', (code, reason) => {
+      console.log(`Deepgram closed: ${code} ${reason}`)
+      clearInterval(keepAlive)
+      if (browserWs.readyState === WebSocket.OPEN) browserWs.close()
+    })
+
+    browserWs.on('message', (data) => {
+      if (dgWs.readyState === WebSocket.OPEN) dgWs.send(data)
+    })
+    browserWs.on('close', () => { clearInterval(keepAlive); dgWs.close() })
+    browserWs.on('error', () => { clearInterval(keepAlive); dgWs.close() })
+  })
+
+  httpServer.listen(port, () => {
     console.log(`🚀 Server ready at http://localhost:${port}/graphql`)
   })
 }

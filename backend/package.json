@@ -1,6 +1,6 @@
 {
   "name": "ttrpg-companion-backend",
-  "version": "0.2.0",
+  "version": "0.8.0",
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "build": "tsc",
@@ -9,10 +9,12 @@
     "prisma:migrate": "prisma migrate dev"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.80.0",
     "@apollo/server": "^4.11.0",
     "@aws-sdk/client-s3": "^3.1014.0",
     "@prisma/client": "^5.22.0",
     "@types/multer": "^2.1.0",
+    "@types/ws": "^8.18.1",
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
     "dataloader": "^2.2.2",
@@ -21,7 +23,8 @@
     "graphql": "^16.9.0",
     "graphql-scalars": "^1.23.0",
     "jsonwebtoken": "^9.0.2",
-    "multer": "^2.1.1"
+    "multer": "^2.1.1",
+    "ws": "^8.20.0"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",

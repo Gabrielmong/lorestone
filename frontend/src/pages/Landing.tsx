@@ -24,6 +24,8 @@ import AddIcon from '@mui/icons-material/Add'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome'
+import MicIcon from '@mui/icons-material/Mic'
+import QueryStatsIcon from '@mui/icons-material/QueryStats'
 import ReactFlow, {
   Background, BackgroundVariant, MarkerType,
   useNodesState, useEdgesState,
@@ -69,6 +71,9 @@ const FEATURES = [
   { icon: <AutoStoriesIcon />, title: 'Campaign Wiki', desc: 'A Notion-style wiki built into your campaign. Write lore, map factions, document locations — with nested pages, rich text, and Notion import.' },
   { icon: <CasinoIcon />, title: '3D Dice Roller', desc: 'Roll animated 3D dice with full sound. Customize your set — metal, crystal, stone — and save your favorites.' },
   { icon: <ShareIcon />, title: 'Shareable Player View', desc: 'Send players a link to their character sheet. They get their own dice roller too — no account needed.' },
+  { icon: <MicIcon />, title: 'Live Voice Transcription', desc: 'Record your session and get a real-time transcript with automatic speaker detection. Supports Spanish, English, or auto-detect.' },
+  { icon: <AutoAwesomeIcon />, title: 'AI Session Summaries', desc: 'When the session ends, AI generates a narrative player summary and DM notes from the transcript — in one click.' },
+  { icon: <QueryStatsIcon />, title: 'Campaign Analytics', desc: 'Track sessions played, hours at the table, encounter outcomes, and campaign progress over time.' },
 ]
 
 const GRAPH_NODE_TYPES = { decision: DecisionTreeNode }
@@ -749,6 +754,116 @@ function MockPlayerView() {
   )
 }
 
+// ── Transcript showcase ────────────────────────────────────────────────────────
+
+const MOCK_TRANSCRIPT = [
+  { speaker: 'Seraphine', speakerId: 0, text: 'I draw my blade and step between the merchant and the guard.' },
+  { speaker: 'DM', speakerId: 1, text: 'The guard raises his halberd. Roll Intimidation.' },
+  { speaker: 'Seraphine', speakerId: 0, text: 'That\'s a 17.' },
+  { speaker: 'DM', speakerId: 1, text: 'He hesitates. The crowd goes silent.' },
+  { speaker: 'Aldric', speakerId: 2, text: 'I move to flank him from the left, hand on my holy symbol.' },
+]
+
+const TRANSCRIPT_SPEAKER_COLORS = ['#c8a44a', '#62a870', '#6ea8d4']
+
+function MockTranscriptShowcase() {
+  return (
+    <Box sx={{ px: { xs: 2, md: 6 }, py: 8, bgcolor: '#0d0b08', borderTop: '1px solid rgba(120,108,92,0.12)', borderBottom: '1px solid rgba(120,108,92,0.12)' }}>
+      <Box sx={{ maxWidth: 1100, mx: 'auto' }}>
+        <Box sx={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', mb: 3, flexWrap: 'wrap', gap: 1 }}>
+          <Box>
+            <Typography variant="h4" sx={{ fontFamily: '"Cinzel", serif', color: '#e6d8c0', fontSize: { xs: '1.3rem', md: '1.6rem' }, mb: 0.5 }}>
+              Voice Transcription & AI Summaries
+            </Typography>
+            <Typography sx={{ color: '#786c5c', fontSize: '0.88rem', maxWidth: 440 }}>
+              Record your session live. The app transcribes speech in real time, identifies each speaker, and filters out off-topic chat. When you're done, get an AI-generated summary of key events, decisions, and NPCs to share with your players.
+            </Typography>
+          </Box>
+          <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
+            {[
+              { label: 'Speaker diarization', color: '#c8a44a' },
+              { label: 'ES / EN / Auto', color: '#5090b0' },
+              { label: 'AI-filtered transcript', color: '#62a870' },
+              { label: 'Auto summary', color: '#a06db5' },
+            ].map((t) => (
+              <Box key={t.label} sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                <Box sx={{ width: 8, height: 8, borderRadius: '2px', bgcolor: t.color }} />
+                <Typography sx={{ fontSize: '0.68rem', color: '#786c5c', fontFamily: '"JetBrains Mono", monospace' }}>{t.label}</Typography>
+              </Box>
+            ))}
+          </Box>
+        </Box>
+
+        <Box sx={{ display: 'flex', gap: 2.5, flexDirection: { xs: 'column', md: 'row' } }}>
+          {/* Transcript panel */}
+          <Box sx={{ flex: 1, borderRadius: 2, overflow: 'hidden', border: '1px solid rgba(120,108,92,0.25)', bgcolor: '#0b0906', display: 'flex', flexDirection: 'column' }}>
+            {/* Header */}
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 2, py: 1.25, borderBottom: '1px solid rgba(120,108,92,0.15)' }}>
+              <Typography sx={{ fontFamily: '"Cinzel"', fontSize: '0.75rem', color: '#786c5c', flex: 1, textTransform: 'uppercase', letterSpacing: 1 }}>
+                Session Transcript
+              </Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, px: 1.25, py: 0.4, borderRadius: 1, bgcolor: 'rgba(184,72,72,0.12)', border: '1px solid rgba(184,72,72,0.4)' }}>
+                <Box sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: '#b84848', '@keyframes pulse': { '0%,100%': { opacity: 1 }, '50%': { opacity: 0.3 } }, animation: 'pulse 1.2s ease-in-out infinite' }} />
+                <Typography sx={{ fontSize: '0.7rem', color: '#b84848', fontFamily: '"JetBrains Mono"' }}>REC</Typography>
+              </Box>
+              <Box sx={{ px: 1, py: 0.3, border: '1px solid rgba(184,72,72,0.4)', borderRadius: 0.5, color: '#b84848', fontSize: '0.72rem', fontFamily: '"JetBrains Mono"' }}>Stop</Box>
+            </Box>
+            {/* Segments */}
+            <Box sx={{ flex: 1, p: 1.5, display: 'flex', flexDirection: 'column', gap: 1 }}>
+              {MOCK_TRANSCRIPT.map((seg, i) => (
+                <Box key={i} sx={{ display: 'flex', gap: 0.75, alignItems: 'flex-start' }}>
+                  <Chip label={seg.speaker} size="small" sx={{
+                    bgcolor: 'transparent',
+                    border: `1px solid ${TRANSCRIPT_SPEAKER_COLORS[seg.speakerId]}`,
+                    color: TRANSCRIPT_SPEAKER_COLORS[seg.speakerId],
+                    fontSize: '0.62rem', height: 18, flexShrink: 0, mt: 0.2,
+                  }} />
+                  <Typography sx={{ fontSize: '0.8rem', color: '#c8bca8', lineHeight: 1.5 }}>{seg.text}</Typography>
+                </Box>
+              ))}
+            </Box>
+          </Box>
+
+          {/* AI Summary panel */}
+          <Box sx={{ flex: 1, borderRadius: 2, overflow: 'hidden', border: '1px solid rgba(120,108,92,0.25)', bgcolor: '#0b0906', display: 'flex', flexDirection: 'column' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 2, py: 1.25, borderBottom: '1px solid rgba(120,108,92,0.15)' }}>
+              <AutoAwesomeIcon sx={{ fontSize: 16, color: '#a06db5' }} />
+              <Typography sx={{ fontFamily: '"Cinzel"', fontSize: '0.75rem', color: '#786c5c', textTransform: 'uppercase', letterSpacing: 1 }}>
+                AI Session Summary
+              </Typography>
+            </Box>
+            <Box sx={{ flex: 1, p: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <Box>
+                <Typography sx={{ fontSize: '0.65rem', color: '#786c5c', fontFamily: '"JetBrains Mono"', textTransform: 'uppercase', letterSpacing: 1, mb: 0.75 }}>
+                  Player Summary
+                </Typography>
+                <Typography sx={{ fontFamily: '"Crimson Pro", serif', fontSize: '0.95rem', color: '#c8b89a', lineHeight: 1.7 }}>
+                  The party intervened at the Valdris market when Seraphine stepped between an armed guard and a helpless merchant. With a commanding presence and Aldric's silent backing, they defused the confrontation — earning the merchant's trust and the crowd's attention.
+                </Typography>
+              </Box>
+              <Box sx={{ borderTop: '1px solid rgba(120,108,92,0.15)', pt: 1.5 }}>
+                <Typography sx={{ fontSize: '0.65rem', color: '#786c5c', fontFamily: '"JetBrains Mono"', textTransform: 'uppercase', letterSpacing: 1, mb: 0.75 }}>
+                  DM Notes
+                </Typography>
+                {[
+                  'Seraphine passed Intimidation (17) vs. city guard',
+                  'Merchant Tomas Vael — potential recurring contact',
+                  'Crowd witnessed the party — reputation event pending',
+                ].map((note) => (
+                  <Box key={note} sx={{ display: 'flex', gap: 1, mb: 0.5, alignItems: 'flex-start' }}>
+                    <Box sx={{ width: 4, height: 4, borderRadius: '50%', bgcolor: '#a06db5', mt: '0.45rem', flexShrink: 0 }} />
+                    <Typography sx={{ fontSize: '0.8rem', color: '#b4a48a', lineHeight: 1.6 }}>{note}</Typography>
+                  </Box>
+                ))}
+              </Box>
+            </Box>
+          </Box>
+        </Box>
+      </Box>
+    </Box>
+  )
+}
+
 // ── Main page ──────────────────────────────────────────────────────────────────
 
 export default function Landing() {
@@ -803,7 +918,7 @@ export default function Landing() {
           </Box>
         </Typography>
         <Typography sx={{ color: '#786c5c', fontSize: { xs: '0.95rem', md: '1.05rem' }, maxWidth: 560, mx: 'auto', lineHeight: 1.7, mb: 4 }}>
-          Track characters, decisions, factions, and sessions. Roll 3D animated dice. Share live character sheets with your players — all in one dark, focused tool.
+          Track characters, decisions, factions, and sessions. Record live voice transcripts with AI-generated summaries. Roll 3D animated dice. All in one dark, focused tool.
         </Typography>
         <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center', flexWrap: 'wrap' }}>
           {isLoggedIn ? (
@@ -961,6 +1076,9 @@ export default function Landing() {
 
       {/* Player view showcase */}
       <MockPlayerView />
+
+      {/* Transcript + AI showcase */}
+      <MockTranscriptShowcase />
 
       {/* Features grid */}
       <Box sx={{ px: { xs: 3, md: 6 }, py: 8, overflow: 'hidden' }}>

@@ -23,6 +23,33 @@ import { useAuthStore } from '../store/auth'
 import HPTracker from '../components/HPTracker'
 import ConditionBadge from '../components/ConditionBadge'
 import StatusBadge from '../components/StatusBadge'
+import TranscriptPanel from '../components/TranscriptPanel'
+
+const SPEAKER_COLORS = ['#c8a44a', '#62a870', '#6ea8d4', '#c87050', '#a862a8', '#a8c862']
+function CompletedTranscript({ segments }: { segments: any[] }) {
+  const gameOnly = segments.filter((s) => s.isGameRelated)
+  return (
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', gap: 1 }}>
+      <Typography sx={{ fontFamily: '"Cinzel"', fontSize: '0.8rem', color: '#786c5c', textTransform: 'uppercase', letterSpacing: 1 }}>
+        Session Transcript
+      </Typography>
+      <Box sx={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column-reverse', gap: 0.75 }}>
+        {gameOnly.map((seg: any) => {
+          const color = SPEAKER_COLORS[(seg.speakerId ?? 0) % SPEAKER_COLORS.length]
+          const label = seg.speakerName ?? `Speaker ${seg.speakerId ?? '?'}`
+          return (
+            <Box key={seg.id} sx={{ display: 'flex', gap: 0.75, alignItems: 'flex-start' }}>
+              <Chip label={label} size="small" sx={{ bgcolor: 'transparent', border: `1px solid ${color}`, color, fontSize: '0.65rem', height: 20, flexShrink: 0, mt: 0.25 }} />
+              <Typography sx={{ fontSize: '0.8rem', color: '#c8bca8', lineHeight: 1.5 }}>
+                {seg.cleanText ?? seg.rawText}
+              </Typography>
+            </Box>
+          )
+        })}
+      </Box>
+    </Box>
+  )
+}
 
 const SESSION = gql`
   query SessionActive($id: ID!) {
@@ -46,13 +73,25 @@ const CAMPAIGN_CHARS = gql`
 
 const START_SESSION = gql`
   mutation StartSession($id: ID!) {
-    startSession(id: $id) { id status }
+    startSession(id: $id) { id status startedAt }
   }
 `
 
 const END_SESSION = gql`
   mutation EndSession($id: ID!, $playerSummary: String) {
     endSession(id: $id, playerSummary: $playerSummary) { id status endedAt }
+  }
+`
+
+const GENERATE_SUMMARY = gql`
+  mutation GenerateSessionSummary($sessionId: ID!) {
+    generateSessionSummary(sessionId: $sessionId) { playerSummary dmNotes }
+  }
+`
+
+const TRANSCRIPT_SEGMENTS = gql`
+  query TranscriptSegments($sessionId: ID!) {
+    transcriptSegments(sessionId: $sessionId) { id speakerName speakerId rawText cleanText isGameRelated startTime }
   }
 `
 
@@ -97,9 +136,11 @@ export default function SessionActive() {
   const [note, setNote] = useState('')
   const [endDialogOpen, setEndDialogOpen] = useState(false)
   const [playerSummaryEnd, setPlayerSummaryEnd] = useState('')
+  const [dmNotesEnd, setDmNotesEnd] = useState('')
+  const [generatingSummary, setGeneratingSummary] = useState(false)
 
-  // Role filter — default show all non-player roles for active, all for completed
-  const [roleFilter, setRoleFilter] = useState<string[]>([])
+  // Role filter — default to Player
+  const [roleFilter, setRoleFilter] = useState<string[]>(['player'])
 
   // ── Timer ────────────────────────────────────────────────
   const [elapsed, setElapsed] = useState(0)
@@ -137,6 +178,8 @@ export default function SessionActive() {
   })
 
   const [endSession] = useMutation(END_SESSION)
+  const [generateSummary] = useMutation(GENERATE_SUMMARY)
+  const { data: transcriptData } = useQuery(TRANSCRIPT_SEGMENTS, { variables: { sessionId: id }, skip: !id, fetchPolicy: 'network-only' })
   const [updateSession] = useMutation(UPDATE_SESSION)
   const [startSession] = useMutation(START_SESSION)
   const [addNote] = useMutation(ADD_NOTE)
@@ -234,7 +277,21 @@ export default function SessionActive() {
   const handleEndSession = async () => {
     if (!id) return
     await endSession({ variables: { id, playerSummary: playerSummaryEnd || undefined } })
+    if (dmNotesEnd) await updateSession({ variables: { id, input: { dmNotes: dmNotesEnd } } })
     navigate('/dashboard')
+  }
+
+  const handleGenerateSummary = async () => {
+    if (!id) return
+    setGeneratingSummary(true)
+    try {
+      const res = await generateSummary({ variables: { sessionId: id } })
+      const { playerSummary, dmNotes } = res.data.generateSessionSummary
+      if (playerSummary) setPlayerSummaryEnd(playerSummary)
+      if (dmNotes) setDmNotesEnd(dmNotes)
+    } finally {
+      setGeneratingSummary(false)
+    }
   }
 
   const handleLogManualRoll = async () => {
@@ -546,6 +603,24 @@ export default function SessionActive() {
             ))}
           </List>
         </Grid>
+
+        {/* Transcript — live when active, read-only when completed */}
+        {(isActive || (isCompleted && transcriptData?.transcriptSegments?.length > 0)) && (
+          <Grid item xs={12}>
+            <Box sx={{ p: 2, bgcolor: '#0f0d0a', border: '1px solid rgba(120,108,92,0.2)', borderRadius: 1, height: 300, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+              {isActive ? (
+                <TranscriptPanel
+                  sessionId={id!}
+                  campaignCharacters={(charsData?.characters ?? []).map((c: { name: string }) => c.name)}
+                  dmName={user?.name ?? 'DM'}
+                  initialSegments={transcriptData?.transcriptSegments ?? []}
+                />
+              ) : (
+                <CompletedTranscript segments={transcriptData?.transcriptSegments ?? []} />
+              )}
+            </Box>
+          </Grid>
+        )}
       </Grid>
 
       {/* Manual Roll Log Dialog */}
@@ -599,26 +674,37 @@ export default function SessionActive() {
       </Dialog>
 
       {/* End session dialog */}
-      <Dialog open={endDialogOpen} onClose={() => setEndDialogOpen(false)}
-        PaperProps={{ sx: { bgcolor: '#111009', border: '1px solid rgba(200,164,74,0.3)', minWidth: 400 } }}>
+      <Dialog open={endDialogOpen} onClose={() => setEndDialogOpen(false)} maxWidth="md" fullWidth
+        PaperProps={{ sx: { bgcolor: '#111009', border: '1px solid rgba(200,164,74,0.3)' } }}>
         <DialogTitle sx={{ fontFamily: '"Cinzel", serif', color: '#c8a44a' }}>End Session</DialogTitle>
-        <DialogContent>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2, p: 1.5, bgcolor: '#0b0906', borderRadius: 1 }}>
+        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, p: 1.5, bgcolor: '#0b0906', borderRadius: 1 }}>
             <TimerIcon sx={{ fontSize: 16, color: '#c8a44a' }} />
             <Typography sx={{ fontFamily: '"JetBrains Mono"', color: '#c8a44a', fontSize: '1rem' }}>
               {formatElapsed(elapsed)}
             </Typography>
             <Typography sx={{ color: '#786c5c', fontSize: '0.8rem' }}>session duration</Typography>
+            <Box sx={{ flex: 1 }} />
+            <Button size="small" variant="outlined" onClick={handleGenerateSummary} disabled={generatingSummary}
+              sx={{ borderColor: 'rgba(200,164,74,0.4)', color: '#c8a44a', fontSize: '0.7rem' }}>
+              {generatingSummary ? 'Generating...' : '✦ AI Summary'}
+            </Button>
           </Box>
-          <Typography variant="body2" sx={{ color: '#b4a48a', mb: 2 }}>
-            Write a player-facing summary of what happened this session. This will be visible in the player share link.
-          </Typography>
           <TextField
-            fullWidth multiline rows={5}
+            fullWidth multiline rows={8}
             label="Player Summary"
             value={playerSummaryEnd}
             onChange={(e) => setPlayerSummaryEnd(e.target.value)}
             placeholder="The party crossed the Galebring Ford and discovered..."
+            helperText="Visible to players in the share link"
+          />
+          <TextField
+            fullWidth multiline rows={8}
+            label="DM Notes"
+            value={dmNotesEnd}
+            onChange={(e) => setDmNotesEnd(e.target.value)}
+            placeholder="Key events, decisions, plot threads..."
+            helperText="Private — only visible to you"
           />
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
