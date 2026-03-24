@@ -20,6 +20,8 @@ import EditNoteIcon from '@mui/icons-material/EditNote'
 import { useSessionStore } from '../store/session'
 import { useDiceStore } from '../store/dice'
 import { useAuthStore } from '../store/auth'
+import { useRecordingStore } from '../store/recording'
+import { recordingService } from '../services/recordingService'
 import HPTracker from '../components/HPTracker'
 import ConditionBadge from '../components/ConditionBadge'
 import StatusBadge from '../components/StatusBadge'
@@ -142,18 +144,22 @@ export default function SessionActive() {
   // Role filter — default to Player
   const [roleFilter, setRoleFilter] = useState<string[]>(['player'])
 
-  // ── Timer ────────────────────────────────────────────────
-  const [elapsed, setElapsed] = useState(0)
-  const [paused, setPaused] = useState(false)
-  const pausedAtRef = useRef<number | null>(null)
-  const pausedOffsetRef = useRef(0) // accumulated ms of paused time
-
   const theme = useTheme()
-  const _isMobile = useMediaQuery(theme.breakpoints.down('md'))
+  const isMobile = useMediaQuery(theme.breakpoints.down('md'))
 
   const { characterStates, initCharacter, setHP } = useSessionStore()
-  const { setActiveSession, clearActiveSession } = useDiceStore()
+  const { setActiveSession: setDiceActiveSession, clearActiveSession: clearDiceActiveSession } = useDiceStore()
   const { user } = useAuthStore()
+  const {
+    elapsed, paused, pauseTimer, resumeTimer,
+    setActiveSession: setRecordingSession, clearActiveSession: clearRecordingSession,
+    isRecording,
+  } = useRecordingStore()
+
+  // Track whether we've registered this session — avoids re-registration when
+  // clearRecordingSession() changes the store mid-render while isActive is still true
+  const sessionRegisteredRef = useRef(false)
+  useEffect(() => { sessionRegisteredRef.current = false }, [id])
 
   const { data, loading, error, refetch } = useQuery(SESSION, { variables: { id }, skip: !id })
   const session = data?.session
@@ -166,9 +172,9 @@ export default function SessionActive() {
 
   // Track active session in dice store so DiceRoller can auto-log rolls
   useEffect(() => {
-    if (isActive && id && campaignId) setActiveSession(id, campaignId)
-    else clearActiveSession()
-    return () => clearActiveSession()
+    if (isActive && id && campaignId) setDiceActiveSession(id, campaignId)
+    else clearDiceActiveSession()
+    return () => clearDiceActiveSession()
   }, [isActive, id, campaignId])
 
   const { data: charsData } = useQuery(CAMPAIGN_CHARS, {
@@ -179,7 +185,6 @@ export default function SessionActive() {
 
   const [endSession] = useMutation(END_SESSION)
   const [generateSummary] = useMutation(GENERATE_SUMMARY)
-  const { data: transcriptData } = useQuery(TRANSCRIPT_SEGMENTS, { variables: { sessionId: id }, skip: !id, fetchPolicy: 'network-only' })
   const [updateSession] = useMutation(UPDATE_SESSION)
   const [startSession] = useMutation(START_SESSION)
   const [addNote] = useMutation(ADD_NOTE)
@@ -194,22 +199,33 @@ export default function SessionActive() {
   const [rlResult, setRlResult] = useState('')
   const [rlModifier, setRlModifier] = useState('0')
 
-  // Tick — only when active, timer started, and not paused
+  // Register session in recording store when data is ready (only once per session)
+  const { data: transcriptData } = useQuery(TRANSCRIPT_SEGMENTS, { variables: { sessionId: id }, skip: !id, fetchPolicy: 'network-only' })
   useEffect(() => {
-    if (!isActive || !session?.startedAt || paused) return
-    const startedMs = new Date(session.startedAt).getTime()
-    const tick = () => setElapsed(Date.now() - startedMs - pausedOffsetRef.current)
-    tick()
-    const interval = setInterval(tick, 1000)
-    return () => clearInterval(interval)
-  }, [isActive, session?.startedAt, paused])
+    if (!session || !id || !transcriptData || !charsData) return
+    if (!isActive) return
+    if (sessionRegisteredRef.current) return // already registered
+    setRecordingSession({
+      id,
+      sessionNumber: session.sessionNumber ?? null,
+      sessionName: session.title ?? null,
+      startedAt: session.startedAt ?? null,
+      campaignCharacters: (charsData.characters ?? []).map((c: { name: string }) => c.name),
+      dmName: user?.name ?? 'DM',
+      initialSegments: transcriptData.transcriptSegments ?? [],
+    })
+    sessionRegisteredRef.current = true
+  }, [session?.id, !!transcriptData, !!charsData, isActive])
 
-  // For completed sessions compute final duration once
+  // For completed sessions show final duration
+  const [completedElapsed, setCompletedElapsed] = useState(0)
   useEffect(() => {
     if (isCompleted && session?.startedAt && session?.endedAt) {
-      setElapsed(new Date(session.endedAt).getTime() - new Date(session.startedAt).getTime())
+      setCompletedElapsed(new Date(session.endedAt).getTime() - new Date(session.startedAt).getTime())
     }
   }, [isCompleted, session?.startedAt, session?.endedAt])
+
+  const displayElapsed = isCompleted ? completedElapsed : elapsed
 
   // Default role filter based on session status
   useEffect(() => {
@@ -234,16 +250,8 @@ export default function SessionActive() {
   }, [session?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const togglePause = () => {
-    if (paused) {
-      // resuming: accumulate how long we were paused
-      if (pausedAtRef.current !== null) {
-        pausedOffsetRef.current += Date.now() - pausedAtRef.current
-        pausedAtRef.current = null
-      }
-    } else {
-      pausedAtRef.current = Date.now()
-    }
-    setPaused((p) => !p)
+    if (paused) resumeTimer()
+    else pauseTimer()
   }
 
   useEffect(() => {
@@ -276,6 +284,8 @@ export default function SessionActive() {
 
   const handleEndSession = async () => {
     if (!id) return
+    if (isRecording) recordingService.stop(id)
+    clearRecordingSession()
     await endSession({ variables: { id, playerSummary: playerSummaryEnd || undefined } })
     if (dmNotesEnd) await updateSession({ variables: { id, input: { dmNotes: dmNotesEnd } } })
     navigate('/dashboard')
@@ -332,7 +342,7 @@ export default function SessionActive() {
   const events = [...(session.events ?? [])].reverse()
 
   return (
-    <Box sx={{ pb: { xs: isActive ? '72px' : 0, md: 0 } }}>
+    <Box sx={{ pb: { xs: isActive ? '72px' : 0, md: 0 }, pt: isMobile ? 1 : 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
       {/* Header */}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Box>
@@ -372,7 +382,7 @@ export default function SessionActive() {
               fontFamily: '"JetBrains Mono"', fontSize: '1.1rem', minWidth: 56, textAlign: 'center',
               color: isActive && timerStarted && !paused ? '#c8a44a' : '#786c5c',
             }}>
-              {formatElapsed(elapsed)}
+              {formatElapsed(displayElapsed)}
             </Typography>
             {isActive && !timerStarted && (
               <Button size="small" onClick={() => startSession({ variables: { id } })} sx={{ minWidth: 0, p: 0.25, color: '#62a870' }}>
@@ -609,12 +619,7 @@ export default function SessionActive() {
           <Grid item xs={12}>
             <Box sx={{ p: 2, bgcolor: '#0f0d0a', border: '1px solid rgba(120,108,92,0.2)', borderRadius: 1, height: 300, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
               {isActive ? (
-                <TranscriptPanel
-                  sessionId={id!}
-                  campaignCharacters={(charsData?.characters ?? []).map((c: { name: string }) => c.name)}
-                  dmName={user?.name ?? 'DM'}
-                  initialSegments={transcriptData?.transcriptSegments ?? []}
-                />
+                <TranscriptPanel />
               ) : (
                 <CompletedTranscript segments={transcriptData?.transcriptSegments ?? []} />
               )}
@@ -681,7 +686,7 @@ export default function SessionActive() {
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, p: 1.5, bgcolor: '#0b0906', borderRadius: 1 }}>
             <TimerIcon sx={{ fontSize: 16, color: '#c8a44a' }} />
             <Typography sx={{ fontFamily: '"JetBrains Mono"', color: '#c8a44a', fontSize: '1rem' }}>
-              {formatElapsed(elapsed)}
+              {formatElapsed(displayElapsed)}
             </Typography>
             <Typography sx={{ color: '#786c5c', fontSize: '0.8rem' }}>session duration</Typography>
             <Box sx={{ flex: 1 }} />
@@ -723,7 +728,7 @@ export default function SessionActive() {
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, px: 1.5, py: 0.5, bgcolor: '#111009', border: `1px solid ${isActive && timerStarted && !paused ? 'rgba(200,164,74,0.4)' : 'rgba(120,108,92,0.3)'}`, borderRadius: 1 }}>
           <TimerIcon sx={{ fontSize: 14, color: isActive && timerStarted && !paused ? '#c8a44a' : '#786c5c' }} />
           <Typography sx={{ fontFamily: '"JetBrains Mono"', fontSize: '0.9rem', color: isActive && timerStarted && !paused ? '#c8a44a' : '#786c5c' }}>
-            {formatElapsed(elapsed)}
+            {formatElapsed(displayElapsed)}
           </Typography>
           {isActive && timerStarted && (
             <IconButton size="small" onClick={togglePause} sx={{ p: 0.25, color: paused ? '#62a870' : '#786c5c' }}>

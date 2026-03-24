@@ -40,9 +40,25 @@ import { useDiceStore, type DiceSet } from '../store/dice'
 import { version } from '../../package.json'
 import { AccountCircle } from '@mui/icons-material'
 import DiceFab from './DiceFab'
+import SessionBar from './SessionBar'
+import { useRecordingStore } from '../store/recording'
 
 const MY_DICE_SETS = gql`
   query MyDiceSetsLayout { myDiceSets { id name colorset customBg customFg material surface texture } }
+`
+
+const ACTIVE_SESSION = gql`
+  query ActiveSessionMeta($campaignId: ID!) {
+    campaign(id: $campaignId) {
+      currentSession { id sessionNumber title status }
+    }
+  }
+`
+
+const SESSION_START_TIME = gql`
+  query SessionStartTime($id: ID!) {
+    session(id: $id) { id startedAt }
+  }
 `
 
 const ME_AVATAR = gql`
@@ -162,7 +178,60 @@ export default function Layout() {
   const theme = useTheme()
   const isMobile = useMediaQuery(theme.breakpoints.down('md'))
   const [mobileOpen, setMobileOpen] = useState(false)
-  const { campaignName } = useCampaign()
+  const { campaignName, campaignId } = useCampaign()
+
+  const {
+    activeSessionId, startedAt, paused, pausedOffset,
+    setElapsed, setActiveSession: setRecordingSession, clearActiveSession: clearRecordingSession,
+  } = useRecordingStore()
+
+  // Rehydrate bar on any page load — reads from Apollo cache immediately (same tab)
+  // or falls back to network (new tab). Matches exact fields Dashboard fetches so
+  // cache-and-network can serve it instantly when Dashboard has already run.
+  const { data: activeSessionData } = useQuery(ACTIVE_SESSION, {
+    variables: { campaignId },
+    skip: !campaignId,
+    fetchPolicy: 'cache-and-network',
+  })
+  const activeFromQuery = activeSessionData?.campaign?.currentSession
+  useEffect(() => {
+    if (!activeFromQuery || activeFromQuery.status?.toUpperCase() !== 'ACTIVE') {
+      if (activeSessionId) clearRecordingSession()
+      return
+    }
+    if (activeSessionId === activeFromQuery.id) return // already registered
+    setRecordingSession({
+      id: activeFromQuery.id,
+      sessionNumber: activeFromQuery.sessionNumber ?? null,
+      sessionName: activeFromQuery.title ?? null,
+      startedAt: null, // populated separately below
+      campaignCharacters: [],
+      dmName: '',
+      initialSegments: [],
+    })
+  }, [activeFromQuery?.id, activeFromQuery?.status]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Once we have the session ID, fetch startedAt so the timer ticks correctly
+  const { data: startTimeData } = useQuery(SESSION_START_TIME, {
+    variables: { id: activeSessionId },
+    skip: !activeSessionId || !!startedAt, // skip if already have startedAt
+    fetchPolicy: 'network-only',
+  })
+  useEffect(() => {
+    if (!startTimeData?.session?.startedAt) return
+    // Patch startedAt into the store without resetting everything else
+    useRecordingStore.setState({ startedAt: startTimeData.session.startedAt })
+  }, [startTimeData?.session?.startedAt]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Timer ticker — persists across navigation so elapsed stays live in SessionBar
+  useEffect(() => {
+    if (!activeSessionId || !startedAt || paused) return
+    const startedMs = new Date(startedAt).getTime()
+    const tick = () => setElapsed(Date.now() - startedMs - pausedOffset)
+    tick()
+    const interval = setInterval(tick, 1000)
+    return () => clearInterval(interval)
+  }, [activeSessionId, startedAt, paused, pausedOffset]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fetch custom dice sets on mount so they're available before opening settings
   const { data: remoteSetsData } = useQuery(MY_DICE_SETS, { fetchPolicy: 'cache-first' })
@@ -239,10 +308,14 @@ export default function Layout() {
 
       {/* Main content */}
       <Box component="main" sx={{
+        display: 'flex', 
+        flexDirection: 'column',
         flex: 1, overflow: 'auto',
         p: { xs: 2, md: 3 },
         pt: { xs: '52px', md: 3 }, // account for mobile AppBar
+        gap: 2, 
       }}>
+        <SessionBar />
         <AnimatePresence mode="wait" initial={false}>
           <motion.div
             key={location.pathname}
@@ -250,7 +323,7 @@ export default function Layout() {
             initial="hidden"
             animate="visible"
             exit="exit"
-            style={{ height: '100%', }}
+            style={{ height: '100%' }}
           >
             <Outlet />
           </motion.div>
