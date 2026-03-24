@@ -86,13 +86,14 @@ type Merchant = {
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const MERCHANT_TYPES = ['general', 'blacksmith', 'apothecary', 'tavern', 'magic shop', 'fletcher', 'jeweler', 'stable', 'shipwright', 'other']
-const CATEGORIES = ['armor', 'weapon', 'food', 'component', 'magic item', 'tool', 'clothing', 'mount', 'misc']
+const CATEGORIES = ['armor', 'weapon', 'food', 'component', 'magic item', 'tool', 'clothing', 'mount', 'misc','service', 'material']
 const RARITIES = ['common', 'uncommon', 'rare', 'very rare', 'legendary']
 
 const CATEGORY_COLORS: Record<string, string> = {
   armor: '#6ea8d4', weapon: '#c87050', food: '#62a870',
   component: '#a862a8', 'magic item': '#c8a44a', tool: '#786c5c',
   clothing: '#a8c862', mount: '#d47c50', misc: '#5c6a78',
+  service: '#4a4235', material: '#6ea8d4'
 }
 
 function formatPrice(gp: number) {
