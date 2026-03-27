@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { useMutation, gql } from '@apollo/client'
 import {
   Dialog, Box, Typography, IconButton, Tooltip, TextField,
-  Divider, CircularProgress, Button,
+  Divider, CircularProgress, Button, useMediaQuery, useTheme,
 } from '@mui/material'
 import CloseIcon from '@mui/icons-material/Close'
 import DeleteIcon from '@mui/icons-material/Delete'
@@ -91,6 +91,8 @@ function ChestSvg({ size = 22 }: { size?: number }) {
 
 export default function MapLootOverlay({ open, onClose, map, initialMarkers, allItems, missionId, onMarkersChanged }: Props) {
   const { campaignId } = useCampaign()
+  const theme = useTheme()
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'))
 
   const [markers, setMarkers] = useState<LootMarker[]>(initialMarkers)
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -119,6 +121,23 @@ export default function MapLootOverlay({ open, onClose, map, initialMarkers, all
 
   // Sync markers when parent data changes (e.g. after refetch)
   useEffect(() => { setMarkers(initialMarkers) }, [initialMarkers])
+
+  // On mobile, shift the map up so the selected marker isn't hidden behind the bottom sheet
+  const [mapOffsetY, setMapOffsetY] = useState(0)
+  useEffect(() => {
+    if (!isMobile || !selectedId) { setMapOffsetY(0); return }
+    const marker = markers.find((m) => m.id === selectedId)
+    if (!marker || !containerRef.current) { setMapOffsetY(0); return }
+    const rect = containerRef.current.getBoundingClientRect()
+    const markerScreenY = rect.top + (marker.y / 100) * rect.height
+    const sheetRatio = editMode ? 0.55 : 0.45
+    const safeBottom = window.innerHeight * (1 - sheetRatio) - 72 // 72px clearance above sheet
+    if (markerScreenY > safeBottom) {
+      setMapOffsetY(-(markerScreenY - safeBottom))
+    } else {
+      setMapOffsetY(0)
+    }
+  }, [selectedId, isMobile, markers, editMode])
 
   // Close side panel when switching maps
   useEffect(() => {
@@ -178,8 +197,19 @@ export default function MapLootOverlay({ open, onClose, map, initialMarkers, all
 
   // ── Handlers ────────────────────────────────────────────────────────────────
 
-  const handleMapClick = async (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!editMode || dragRef.current) return
+  const handleOuterClick = () => {
+    // Clicking the dark area outside the image always deselects
+    setSelectedId(null)
+  }
+
+  const handleImageClick = async (e: React.MouseEvent<HTMLDivElement>) => {
+    e.stopPropagation()
+    if (dragRef.current?.moved) return
+    if (!editMode) {
+      // In view mode, clicking the image deselects
+      setSelectedId(null)
+      return
+    }
     const { x, y } = getRelativePos(e.clientX, e.clientY)
     const res = await createMarkerMut({ variables: { mapId: map.id, x, y } })
     const m: LootMarker = { ...res.data.createMapLootMarker, items: [] }
@@ -273,9 +303,9 @@ export default function MapLootOverlay({ open, onClose, map, initialMarkers, all
   return (
     <Dialog open={open} fullScreen onClose={onClose} PaperProps={{ sx: { bgcolor: '#0b0906' } }}>
       {/* Header */}
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, px: 2, py: 1, borderBottom: '1px solid rgba(120,108,92,0.2)', flexShrink: 0 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, px: { xs: 1.25, sm: 2 }, py: { xs: 0.75, sm: 1 }, borderBottom: '1px solid rgba(120,108,92,0.2)', flexShrink: 0, minHeight: 0 }}>
         {editingMapName ? (
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flex: 1 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flex: 1, minWidth: 0 }}>
             <TextField
               size="small"
               value={mapNameDraft}
@@ -288,18 +318,20 @@ export default function MapLootOverlay({ open, onClose, map, initialMarkers, all
           </Box>
         ) : (
           <Box
-            sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flex: 1, cursor: 'text', '&:hover .rename-hint': { opacity: 1 } }}
+            sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flex: 1, minWidth: 0, cursor: 'text', '&:hover .rename-hint': { opacity: 1 } }}
             onClick={() => { setMapNameDraft(mapName); setEditingMapName(true) }}
           >
-            <Typography sx={{ fontFamily: '"Cinzel", serif', color: '#e6d8c0', fontSize: '0.9rem' }}>
+            <Typography sx={{ fontFamily: '"Cinzel", serif', color: '#e6d8c0', fontSize: { xs: '0.78rem', sm: '0.9rem' }, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {mapName}
             </Typography>
-            <EditIcon className="rename-hint" sx={{ fontSize: 13, color: '#786c5c', opacity: 0, transition: 'opacity 0.15s' }} />
+            <EditIcon className="rename-hint" sx={{ fontSize: 13, color: '#786c5c', opacity: 0, flexShrink: 0, transition: 'opacity 0.15s' }} />
           </Box>
         )}
-        <Typography sx={{ color: '#786c5c', fontSize: '0.72rem' }}>
-          {markers.length} {markers.length === 1 ? 'marker' : 'markers'}
-        </Typography>
+        {!isMobile && (
+          <Typography sx={{ color: '#786c5c', fontSize: '0.72rem', flexShrink: 0 }}>
+            {markers.length} {markers.length === 1 ? 'marker' : 'markers'}
+          </Typography>
+        )}
         <Tooltip title={editMode ? 'Exit placement mode' : 'Place loot markers'}>
           <Button
             size="small"
@@ -307,28 +339,28 @@ export default function MapLootOverlay({ open, onClose, map, initialMarkers, all
             onClick={() => setEditMode((v) => !v)}
             variant={editMode ? 'contained' : 'outlined'}
             sx={{
-              fontSize: '0.72rem', py: 0.4, px: 1.5,
+              fontSize: '0.72rem', py: 0.4, px: { xs: 1, sm: 1.5 }, flexShrink: 0,
               ...(editMode ? {} : { borderColor: 'rgba(200,164,74,0.35)', color: '#c8a44a', '&:hover': { borderColor: '#c8a44a' } }),
             }}
           >
-            {editMode ? 'Finish editing' : 'Edit markers'}
+            {editMode ? 'Finish' : 'Edit'}
           </Button>
         </Tooltip>
-        <IconButton onClick={onClose} size="small" sx={{ color: '#786c5c', '&:hover': { color: '#e6d8c0' } }}>
+        <IconButton onClick={onClose} size="small" sx={{ color: '#786c5c', '&:hover': { color: '#e6d8c0' }, flexShrink: 0 }}>
           <CloseIcon />
         </IconButton>
       </Box>
 
       {editMode && (
         <Box sx={{ px: 2, py: 0.75, bgcolor: 'rgba(200,164,74,0.06)', borderBottom: '1px solid rgba(200,164,74,0.12)' }}>
-          <Typography sx={{ fontSize: '0.72rem', color: '#c8a44a' }}>
-            Click anywhere on the map to place a loot marker · Drag markers to reposition
+          <Typography sx={{ fontSize: '0.7rem', color: '#c8a44a' }}>
+            {isMobile ? 'Tap map to place a marker · Long-press to drag' : 'Click anywhere on the map to place a loot marker · Drag markers to reposition'}
           </Typography>
         </Box>
       )}
 
       {/* Body */}
-      <Box sx={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+      <Box sx={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' }}>
 
         {/* Map area */}
         <Box
@@ -338,20 +370,23 @@ export default function MapLootOverlay({ open, onClose, map, initialMarkers, all
             alignItems: 'center',
             justifyContent: 'center',
             overflow: 'hidden',
-            cursor: editMode ? 'crosshair' : 'default',
+            cursor: editMode ? 'crosshair' : selectedId ? 'pointer' : 'default',
             bgcolor: '#050302',
+            transform: `translateY(${mapOffsetY}px)`,
+            transition: 'transform 0.3s ease',
           }}
-          onClick={handleMapClick}
+          onClick={handleOuterClick}
         >
           {/* Image + markers container — inline-block so it shrinks to image size */}
           <Box
             ref={containerRef}
+            onClick={handleImageClick}
             sx={{
               position: 'relative',
               display: 'inline-block',
               lineHeight: 0,
               maxWidth: '100%',
-              maxHeight: 'calc(100vh - 120px)',
+              maxHeight: { xs: 'calc(100vh - 56px)', sm: 'calc(100vh - 120px)' },
               userSelect: 'none',
             }}
           >
@@ -444,15 +479,36 @@ export default function MapLootOverlay({ open, onClose, map, initialMarkers, all
         {!editMode && selected && (
           <Box
             sx={{
-              width: 280,
+              // Desktop: right column
+              width: { xs: '100%', sm: 280 },
               flexShrink: 0,
-              borderLeft: '1px solid rgba(120,108,92,0.2)',
+              borderLeft: { xs: 'none', sm: '1px solid rgba(120,108,92,0.2)' },
+              borderTop: { xs: '1px solid rgba(120,108,92,0.2)', sm: 'none' },
               display: 'flex',
               flexDirection: 'column',
               overflow: 'hidden',
               bgcolor: '#0f0d0a',
+              // Mobile: bottom sheet overlaying the map
+              ...(isMobile ? {
+                position: 'absolute',
+                bottom: 0,
+                left: 0,
+                right: 0,
+                maxHeight: '45%',
+                zIndex: 30,
+                boxShadow: '0 -4px 24px rgba(0,0,0,0.7)',
+                borderRadius: '12px 12px 0 0',
+              } : {}),
             }}
           >
+            {isMobile && (
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', pt: 1, pb: 0.5, position: 'relative' }}>
+                <Box sx={{ width: 36, height: 4, borderRadius: 2, bgcolor: 'rgba(120,108,92,0.4)' }} />
+                <IconButton size="small" onClick={() => setSelectedId(null)} sx={{ position: 'absolute', right: 4, top: 0, color: '#786c5c', '&:hover': { color: '#e6d8c0' } }}>
+                  <CloseIcon sx={{ fontSize: 16 }} />
+                </IconButton>
+              </Box>
+            )}
             <Box sx={{ px: 2, py: 1.5, borderBottom: '1px solid rgba(120,108,92,0.15)' }}>
               <Typography sx={{ fontSize: '0.62rem', color: '#786c5c', textTransform: 'uppercase', letterSpacing: 1, fontFamily: '"JetBrains Mono"' }}>
                 Loot marker
@@ -484,15 +540,36 @@ export default function MapLootOverlay({ open, onClose, map, initialMarkers, all
         {editMode && (
           <Box
             sx={{
-              width: 300,
+              width: { xs: '100%', sm: 300 },
               flexShrink: 0,
-              borderLeft: '1px solid rgba(120,108,92,0.2)',
+              borderLeft: { xs: 'none', sm: '1px solid rgba(120,108,92,0.2)' },
+              borderTop: { xs: '1px solid rgba(120,108,92,0.2)', sm: 'none' },
               display: 'flex',
               flexDirection: 'column',
               overflow: 'hidden',
               bgcolor: '#0f0d0a',
+              ...(isMobile ? {
+                position: 'absolute',
+                bottom: 0,
+                left: 0,
+                right: 0,
+                maxHeight: selected ? '55%' : '30%',
+                zIndex: 30,
+                boxShadow: '0 -4px 24px rgba(0,0,0,0.7)',
+                borderRadius: '12px 12px 0 0',
+              } : {}),
             }}
           >
+            {isMobile && (
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', pt: 1, pb: 0.5, position: 'relative' }}>
+                <Box sx={{ width: 36, height: 4, borderRadius: 2, bgcolor: 'rgba(120,108,92,0.4)' }} />
+                {selected && (
+                  <IconButton size="small" onClick={() => setSelectedId(null)} sx={{ position: 'absolute', right: 4, top: 0, color: '#786c5c', '&:hover': { color: '#e6d8c0' } }}>
+                    <CloseIcon sx={{ fontSize: 16 }} />
+                  </IconButton>
+                )}
+              </Box>
+            )}
             {!selected ? (
               <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', p: 3 }}>
                 <Typography sx={{ color: '#4a4035', fontSize: '0.8rem', textAlign: 'center' }}>
